@@ -45,4 +45,25 @@ class Line(val maxCells: Int) {
     fun setCellAt(cx: Int, char: Char, attributes: CellAttributes = CellAttributes()) {
         cells[cx] = Cell(char, attributes)
     }
+
+    fun clearRange(start: Int, end: Int) {
+        val clampedEnd = minOf(end, maxCells)
+        val clampedStart = maxOf(start, 0)
+        if (clampedStart >= clampedEnd) return
+
+        ensureSize(clampedEnd)
+
+        for (i in clampedStart until clampedEnd) {
+            cells[i] = blankCell()
+        }
+    }
+
+    fun clearCellAt(cx: Int) {
+        cells[cx] = blankCell()
+    }
+
+    fun clearLine() {
+        cells.clear()
+        ensureSize(maxCells)
+    }
 }
