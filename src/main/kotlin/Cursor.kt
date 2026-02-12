@@ -44,4 +44,9 @@ class Cursor(var cy: Int, var cx: Int) {
         this.cy = 0
         this.cx = 0
     }
+
+    fun clampCursor(min_cx: Int, min_cy: Int, max_cx: Int, max_cy: Int) {
+        this.cx.coerceIn(min_cx, max_cx)
+        this.cy.coerceIn(min_cy, max_cy)
+    }
 }

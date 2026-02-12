@@ -41,4 +41,8 @@ class Line(val maxCells: Int) {
         ensureSize(index + 1)
         return cells[index]
     }
+
+    fun setCellAt(cx: Int, char: Char, attributes: CellAttributes = CellAttributes()) {
+        cells[cx] = Cell(char, attributes)
+    }
 }
