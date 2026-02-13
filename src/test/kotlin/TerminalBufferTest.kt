@@ -9,6 +9,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 
 class TerminalBufferTest {
 
@@ -1639,5 +1640,1526 @@ class TerminalBufferTest {
         assertEquals("", tb.getLineAsString(0).trimEnd())
     }
 
+    @Test
+    fun testWriteAtWithWideCharacter() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeAt(2, 0, '中', CellAttributes())
 
+        val line = buffer.getLine(0)
+        assertEquals('中', line.getCell(2)?.char)
+        assertEquals('\u0000', line.getCell(3)?.char)
+        // Cursor should not move with writeAt
+        assertEquals(0, buffer.getCursor().cx)
+        assertEquals(0, buffer.getCursor().cy)
+    }
+
+    @Test
+    fun testWriteAtWideCharacterAtLineEnd() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeAt(9, 0, '中', CellAttributes())
+
+        val line = buffer.getLine(0)
+        // Should write null since continuation doesn't fit
+        assertNull(line.getCell(9))
+    }
+
+    @Test
+    fun testWriteAtOverwritesExistingWideChar() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeAt(0, 0, '中', CellAttributes())
+        buffer.writeAt(0, 0, 'A', CellAttributes())
+
+        val line = buffer.getLine(0)
+        assertEquals('A', line.getCell(0)?.char)
+        assertEquals(' ', line.getCell(1)?.char)  // Continuation cleared
+    }
+
+    // ===== Line.fill() with Wide Characters =====
+
+    @Test
+    fun testFillLineWithWideCharacter() {
+        val line = Line(10)
+        val attrs = CellAttributes(fgColor = TerminalColor.Red)
+        line.fill('中', attrs)
+
+        // fill() is a low-level operation - it fills EVERY cell with the character
+        // It doesn't understand wide character semantics
+        for (i in 0 until 10) {
+            assertEquals('中', line.getCell(i)?.char)
+            assertEquals(TerminalColor.Red, line.getCell(i)?.attributes?.fgColor)
+        }
+    }
+
+    @Test
+    fun testFillLineWithSingleWidthCharacter() {
+        val line = Line(9)
+        val attrs = CellAttributes()
+        line.fill('A', attrs)
+
+        // All cells should have 'A'
+        for (i in 0 until 9) {
+            assertEquals('A', line.getCell(i)?.char)
+        }
+    }
+
+    // ===== Cursor Positioning Edge Cases =====
+
+    @Test
+    fun testMoveCursorToLandsOnContinuation() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.write('中')  // Positions 0-1
+
+        // Try to move cursor to continuation cell (position 1)
+        buffer.moveCursorTo(0, 1)
+
+        // Should auto-adjust to wide character start (position 0)
+        assertEquals(0, buffer.getCursor().cx)
+    }
+
+    @Test
+    fun testMoveCursorToWideCharacterStart() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.write('中')  // Positions 0-1
+
+        buffer.moveCursorTo(0, 0)
+
+        // Should stay at position 0 (valid position)
+        assertEquals(0, buffer.getCursor().cx)
+    }
+
+    @Test
+    fun testCursorMovementAcrossMultipleWideChars() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("中文日")  // 6 cells total
+
+        buffer.moveCursorTo(0, 0)
+        buffer.moveCursorRight(1)
+        // Should skip to position 2 if landed on continuation at 1
+        assertEquals(2, buffer.getCursor().cx)
+
+        buffer.moveCursorRight(1)
+        // Should skip to position 4 if landed on continuation at 3
+        assertEquals(4, buffer.getCursor().cx)
+    }
+
+    // ===== getCharAtPosition / getAttributeAtPosition =====
+
+    @Test
+    fun testGetCharAtPositionWideCharacter() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.write('中', CellAttributes(fgColor = TerminalColor.Red))
+
+        assertEquals('中', buffer.getCharAtPosition(0, 0))
+        assertEquals('\u0000', buffer.getCharAtPosition(1, 0))
+    }
+
+    @Test
+    fun testGetAttributeAtPositionWideCharacter() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        val attrs = CellAttributes(fgColor = TerminalColor.Blue, bgColor = TerminalColor.Yellow)
+        buffer.write('中', attrs)
+
+        val attr0 = buffer.getAttributeAtPosition(0, 0)
+        assertEquals(TerminalColor.Blue, attr0.fgColor)
+        assertEquals(TerminalColor.Yellow, attr0.bgColor)
+
+        val attr1 = buffer.getAttributeAtPosition(1, 0)
+        assertEquals(TerminalColor.Blue, attr1.fgColor)
+        assertEquals(TerminalColor.Yellow, attr1.bgColor)
+    }
+
+    @Test
+    fun testGetCharAtPositionUninitialized() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+
+        assertFailsWith<IllegalArgumentException> {
+            buffer.getCharAtPosition(5, 0)
+        }
+    }
+
+    // ===== Scrollback with Wide Characters =====
+
+    @Test
+    fun testWideCharactersInScrollback() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+
+        // Fill 4 lines to push first line to scrollback
+        buffer.writeString("中文日本")
+        buffer.newLine()
+        buffer.writeString("ABCDEFGH")
+        buffer.newLine()
+        buffer.writeString("12345678")
+        buffer.newLine()
+        buffer.writeString("XXXXXXXX")
+
+        // First line should be in scrollback
+        assertEquals(1, buffer.getScrollbackSize())
+
+        // Get line from scrollback (index = height + scrollback_index)
+        assertEquals("中文日本", buffer.getLineAsString(3))
+    }
+
+    @Test
+    fun testScrollbackAsStringWithWideChars() {
+        val buffer = TerminalBuffer(10, 2, 100, CellAttributes())
+
+        buffer.writeString("中文")
+        buffer.newLine()
+        buffer.writeString("AB")
+        buffer.newLine()
+        buffer.writeString("CD")
+
+        // First line in scrollback
+        val scrollback = buffer.getScrollbackAsString()
+        assertEquals("中文\n", scrollback)
+    }
+
+    // ===== Line Wrapping Complex Scenarios =====
+
+    @Test
+    fun testInsertTextWithWrappingMixedWidth() {
+        val buffer = TerminalBuffer(8, 3, 100, CellAttributes())
+        buffer.insertTextWithWrapping("AB中文XY", moveCursor = true)
+
+        val line0 = buffer.getLine(0)
+        assertEquals('A', line0.getCell(0)?.char)
+        assertEquals('B', line0.getCell(1)?.char)
+        assertEquals('中', line0.getCell(2)?.char)
+        assertEquals('\u0000', line0.getCell(3)?.char)
+        assertEquals('文', line0.getCell(4)?.char)
+        assertEquals('\u0000', line0.getCell(5)?.char)
+        assertEquals('X', line0.getCell(6)?.char)
+        assertEquals('Y', line0.getCell(7)?.char)
+
+        assertEquals(8, buffer.getCursor().cx)
+    }
+
+    @Test
+    fun testInsertTextWithWrappingOverflow() {
+        val buffer = TerminalBuffer(5, 3, 100, CellAttributes())
+        buffer.insertTextWithWrapping("A中文B", moveCursor = true)
+
+        // A中文 = 1+2+2 = 5 cells (fits exactly)
+        val line0 = buffer.getLine(0)
+        assertEquals('A', line0.getCell(0)?.char)
+        assertEquals('中', line0.getCell(1)?.char)
+        assertEquals('\u0000', line0.getCell(2)?.char)
+        assertEquals('文', line0.getCell(3)?.char)
+        assertEquals('\u0000', line0.getCell(4)?.char)
+
+        // B wraps to next line
+        val line1 = buffer.getLine(1)
+        assertEquals('B', line1.getCell(0)?.char)
+
+        assertEquals(1, buffer.getCursor().cy)
+        assertEquals(1, buffer.getCursor().cx)
+    }
+
+    @Test
+    fun testInsertTextWithWrappingWideCharAtBoundary() {
+        val buffer = TerminalBuffer(6, 3, 100, CellAttributes())
+        buffer.insertTextWithWrapping("ABCD中", moveCursor = true)
+
+        // ABCD = 4 cells, 中 needs 2 cells, total = 6 (fits exactly)
+        val line0 = buffer.getLine(0)
+        assertEquals('A', line0.getCell(0)?.char)
+        assertEquals('B', line0.getCell(1)?.char)
+        assertEquals('C', line0.getCell(2)?.char)
+        assertEquals('D', line0.getCell(3)?.char)
+        assertEquals('中', line0.getCell(4)?.char)
+        assertEquals('\u0000', line0.getCell(5)?.char)
+
+        assertEquals(6, buffer.getCursor().cx)
+    }
+
+    // ===== Character Width Detection Edge Cases =====
+
+    @Test
+    fun testCharDisplayWidthBoundaries() {
+        // Test characters at range boundaries
+        assertEquals(2, charDisplayWidth(0x1100))  // Start of Hangul Jamo
+        assertEquals(2, charDisplayWidth(0x115F))  // End of Hangul Jamo
+        assertEquals(2, charDisplayWidth(0x4E00))  // Start of CJK Unified
+        assertEquals(2, charDisplayWidth(0x9FFF))  // End of CJK Unified
+        assertEquals(2, charDisplayWidth(0x7000))  // Middle of CJK range
+        assertEquals(1, charDisplayWidth(0x0041))  // ASCII 'A'
+        assertEquals(1, charDisplayWidth(0x007E))  // ASCII '~'
+        assertEquals(1, charDisplayWidth(0xA4C7))  // Just after Yi Radicals range
+    }
+
+    @Test
+    fun testStringDisplayWidthEmptyString() {
+        assertEquals(0, stringDisplayWidth(""))
+    }
+
+    @Test
+    fun testStringDisplayWidthOnlyWideChars() {
+        assertEquals(6, stringDisplayWidth("中文日"))
+    }
+
+    @Test
+    fun testStringDisplayWidthOnlySingleWidth() {
+        assertEquals(5, stringDisplayWidth("ABCDE"))
+    }
+
+    @Test
+    fun testStringDisplayWidthMixed() {
+        assertEquals(7, stringDisplayWidth("A中B文C"))  // A(1) + 中(2) + B(1) + 文(2) + C(1) = 7
+    }
+
+    // ===== Multiple Sequential Operations =====
+
+    @Test
+    fun testWriteDeleteWriteWideChar() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("A中B")
+
+        buffer.moveCursorTo(0, 1)  // Move to wide char
+        buffer.deleteCharacterAtCursor()
+
+        assertEquals("AB", buffer.getLine(0).toString())
+
+        // Write another wide char (overwrites 'B')
+        buffer.moveCursorTo(0, 1)
+        buffer.write('文')
+
+        // '文' overwrites 'B', so result is "A文"
+        assertEquals("A文", buffer.getLine(0).toString())
+        assertEquals(3, buffer.getCursor().cx)  // Cursor at position 3
+    }
+
+    @Test
+    fun testClearAndRewriteWideChars() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+        line.setCellAt(2, '文', CellAttributes())
+
+        line.clearRange(0, 4)
+
+        // Rewrite
+        line.setCellAt(0, 'A', CellAttributes())
+        line.setCellAt(1, '日', CellAttributes())
+
+        assertEquals('A', line.getCell(0)?.char)
+        assertEquals('日', line.getCell(1)?.char)
+        assertEquals('\u0000', line.getCell(2)?.char)
+    }
+
+    // ===== Viewport and Scrolling with Wide Characters =====
+
+    @Test
+    fun testGetVisibleLineWithWideChars() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+
+        // Create scrollback
+        buffer.writeString("中文日本")
+        buffer.newLine()
+        buffer.writeString("AAAAAAAA")
+        buffer.newLine()
+        buffer.writeString("BBBBBBBB")
+        buffer.newLine()
+        buffer.writeString("CCCCCCCC")
+
+        // After the last newLine:
+        // Scrollback: ["中文日本"] (index 0 = most recent)
+        // Screen: ["AAAAAAAA", "BBBBBBBB", "CCCCCCCC"]
+
+        // Scroll up by 1 - older content appears at TOP
+        buffer.scrollUp(1)
+
+        // viewportOffset = 1
+        // Visible lines with NEW logic (scrollback at top):
+        // row 0: scrollback[0] = "中文日本" (older content at top)
+        // row 1: screen[0] = "AAAAAAAA" (screen shifted down)
+        // row 2: screen[1] = "BBBBBBBB"
+
+        val visibleLine0 = buffer.getVisibleLine(0)
+        assertEquals("中文日本", visibleLine0.toString())
+
+        val visibleLine1 = buffer.getVisibleLine(1)
+        assertEquals("AAAAAAAA", visibleLine1.toString())
+
+        val visibleLine2 = buffer.getVisibleLine(2)
+        assertEquals("BBBBBBBB", visibleLine2.toString())
+    }
+
+    @Test
+    fun testScrollbackAndScreenAsStringWithWideChars() {
+        val buffer = TerminalBuffer(10, 2, 100, CellAttributes())
+
+        buffer.writeString("中文")
+        buffer.newLine()
+        buffer.writeString("日本")
+        buffer.newLine()
+        buffer.writeString("ABCD")
+
+        val combined = buffer.getScrollbackAndScreenAsString()
+        // Should contain all three lines
+        assert(combined.contains("中文"))
+        assert(combined.contains("日本"))
+        assert(combined.contains("ABCD"))
+    }
+
+    // ===== Edge Cases at Buffer Boundaries =====
+
+    @Test
+    fun testWriteWideCharAtRightmostColumn() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.moveCursorTo(0, 8)
+        buffer.write('中')  // Would need positions 8-9
+
+        // Should fit
+        assertEquals('中', buffer.getLine(0).getCell(8)?.char)
+        assertEquals('\u0000', buffer.getLine(0).getCell(9)?.char)
+    }
+
+    @Test
+    fun testWriteWideCharBeyondRightEdge() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.moveCursorTo(0, 9)
+        buffer.write('中')  // Would need positions 9-10, but 10 doesn't exist
+
+        // Should wrap to next line
+        assertEquals(1, buffer.getCursor().cy)
+        assertEquals('中', buffer.getLine(1).getCell(0)?.char)
+    }
+
+    @Test
+    fun testFillEntireBufferWithWideChars() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+
+        for (row in 0 until 3) {
+            buffer.fillLine('中', row)
+        }
+
+        // fillLine() is low-level - it fills every cell with the character
+        for (row in 0 until 3) {
+            val line = buffer.getLine(row)
+            for (col in 0 until 10) {
+                assertEquals('中', line.getCell(col)?.char)
+            }
+        }
+    }
+
+    // ===== Continuation Marker Invariant Tests =====
+
+    @Test
+    fun testContinuationMarkerNeverAppearsAlone() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+        line.setCellAt(2, 'A', CellAttributes())  // Add content after
+
+        // Clear just the wide character
+        line.clearCellAt(0)
+
+        // Both cells should be cleared, and fixGaps will fill with spaces
+        assertEquals(' ', line.getCell(0)?.char)
+        assertEquals(' ', line.getCell(1)?.char)
+        assertEquals('A', line.getCell(2)?.char)
+    }
+
+    @Test
+    fun testOverwritingPartialWideChar() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+        line.setCellAt(2, '文', CellAttributes())
+
+        // Overwrite continuation of first wide char
+        line.setCellAt(1, 'A', CellAttributes())
+
+        // First cell should be cleared
+        assertEquals(' ', line.getCell(0)?.char)
+        assertEquals('A', line.getCell(1)?.char)
+        assertEquals('文', line.getCell(2)?.char)
+    }
+
+    // ===== Zero-Width and Special Characters =====
+
+    @Test
+    fun testNullCharacterDisplay() {
+        // \u0000 is used as continuation marker, verify it's not counted as regular char
+        assertEquals(1, charDisplayWidth('\u0000'))  // Default to single-width
+    }
+
+    @Test
+    fun testTabCharacter() {
+        // Tab is single-width in our system
+        assertEquals(1, charDisplayWidth('\t'))
+    }
+
+    @Test
+    fun testNewlineCharacter() {
+        assertEquals(1, charDisplayWidth('\n'))
+    }
+
+    // ===== Stress Tests =====
+
+    @Test
+    fun testAlternatingWideAndSingleChars() {
+        val buffer = TerminalBuffer(20, 3, 100, CellAttributes())
+        buffer.writeString("A中B文C日D本E語")
+
+        val line = buffer.getLine(0)
+        assertEquals('A', line.getCell(0)?.char)
+        assertEquals('中', line.getCell(1)?.char)
+        assertEquals('\u0000', line.getCell(2)?.char)
+        assertEquals('B', line.getCell(3)?.char)
+        assertEquals('文', line.getCell(4)?.char)
+        assertEquals('\u0000', line.getCell(5)?.char)
+        assertEquals('C', line.getCell(6)?.char)
+
+        assertEquals("A中B文C日D本E語", line.toString())
+    }
+
+    @Test
+    fun testManyConsecutiveWideChars() {
+        val buffer = TerminalBuffer(20, 3, 100, CellAttributes())
+        buffer.writeString("中文日本語한국어")
+
+        val line = buffer.getLine(0)
+        var pos = 0
+        val chars = listOf('中', '文', '日', '本', '語', '한', '국', '어')
+
+        for (char in chars) {
+            assertEquals(char, line.getCell(pos)?.char)
+            assertEquals('\u0000', line.getCell(pos + 1)?.char)
+            pos += 2
+        }
+
+        assertEquals("中文日本語한국어", line.toString())
+    }
+
+    @Test
+    fun testMaxLengthLineWithWideChars() {
+        val buffer = TerminalBuffer(100, 3, 100, CellAttributes())
+        val text = "中".repeat(50)  // 50 wide chars = 100 cells
+        buffer.writeString(text)
+
+        assertEquals(100, buffer.getCursor().cx)
+        assertEquals("中".repeat(50), buffer.getLine(0).toString())
+    }
+
+    // ===== getContentLength with Wide Characters =====
+
+    @Test
+    fun testGetContentLengthWithWideChars() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+
+        assertEquals(2, line.getContentLength())
+    }
+
+    @Test
+    fun testGetContentLengthMixedWidth() {
+        val line = Line(10)
+        line.setCellAt(0, 'A', CellAttributes())
+        line.setCellAt(1, '中', CellAttributes())
+        line.setCellAt(3, 'B', CellAttributes())
+
+        assertEquals(4, line.getContentLength())
+    }
+
+    // ===== Attributes Preservation =====
+
+    @Test
+    fun testWideCharacterPreservesAttributes() {
+        val line = Line(10)
+        val attrs = CellAttributes(
+            fgColor = TerminalColor.Red,
+            bgColor = TerminalColor.Blue,
+            style = Style.Bold
+        )
+
+        line.setCellAt(0, '中', attrs)
+
+        val cell0 = line.getCell(0)
+        assertEquals(TerminalColor.Red, cell0?.attributes?.fgColor)
+        assertEquals(TerminalColor.Blue, cell0?.attributes?.bgColor)
+        assertEquals(Style.Bold, cell0?.attributes?.style)
+
+        val cell1 = line.getCell(1)
+        assertEquals(TerminalColor.Red, cell1?.attributes?.fgColor)
+        assertEquals(TerminalColor.Blue, cell1?.attributes?.bgColor)
+        assertEquals(Style.Bold, cell1?.attributes?.style)
+    }
+
+    @Test
+    fun testDeletePreservesAttributesOfRemainingChars() {
+        val line = Line(10)
+        val redAttrs = CellAttributes(fgColor = TerminalColor.Red)
+        val blueAttrs = CellAttributes(fgColor = TerminalColor.Blue)
+
+        line.setCellAt(0, '中', redAttrs)
+        line.setCellAt(2, 'A', blueAttrs)
+
+        line.deleteCharAt(0)  // Delete wide char
+
+        assertEquals('A', line.getCell(0)?.char)
+        assertEquals(TerminalColor.Blue, line.getCell(0)?.attributes?.fgColor)
+    }
+
+    // ===== Unicode Supplementary Plane =====
+
+    @Test
+    fun testSupplementaryPlaneEmoji() {
+        // Test emoji in supplementary plane (> U+FFFF)
+        assertEquals(2, charDisplayWidth(0x1F600))  // 😀 Grinning face
+        assertEquals(2, charDisplayWidth(0x1F680))  // 🚀 Rocket
+        assertEquals(2, charDisplayWidth(0x1F4BB))  // 💻 Laptop
+    }
+
+    @Test
+    fun testStringDisplayWidthWithSupplementaryPlane() {
+        // Note: These emojis are beyond BMP and need surrogate pairs in Kotlin
+        // They might not display correctly in tests but width detection should work
+        val width = stringDisplayWidth("A😀B")  // A + emoji + B
+        // Emoji should be detected as width 2
+        assertEquals(4, width)  // 1 + 2 + 1 = 4
+    }
+
+    // ===== Basic Wide Character Writing =====
+
+    @Test
+    fun testWriteWideCharacterOccupiesTwoCells() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+
+        // First cell should contain the character
+        assertEquals('中', line.getCell(0)?.char)
+        // Second cell should contain continuation marker
+        assertEquals('\u0000', line.getCell(1)?.char)
+    }
+
+    @Test
+    fun testWriteWideCharacterAdvancesCursorByTwo() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        val cursor = buffer.getCursor()
+
+        assertEquals(0, cursor.cx)
+        buffer.write('中')
+        assertEquals(2, cursor.cx)
+    }
+
+    @Test
+    fun testWideCharacterAtLineEndWrapsToNextLine() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.moveCursorTo(0, 9)  // Position at last column
+
+        buffer.write('中')  // Wide char should wrap to next line
+
+        // Cursor should be on next line
+        assertEquals(1, buffer.getCursor().cy)
+        assertEquals(2, buffer.getCursor().cx)
+
+        // Wide character should be on second line
+        assertEquals('中', buffer.getLine(1).getCell(0)?.char)
+        assertEquals('\u0000', buffer.getLine(1).getCell(1)?.char)
+    }
+
+    @Test
+    fun testCannotSplitWideCharacterAcrossLines() {
+        val line = Line(10)
+        line.setCellAt(9, '中', CellAttributes())  // Position at last cell
+
+        // Should write null instead since continuation doesn't fit
+        assertEquals(null, line.getCell(9))
+    }
+
+    // ===== Cursor Positioning =====
+
+    @Test
+    fun testCursorCannotLandOnContinuationCell() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.write('中')  // Write wide char at position 0-1
+
+        // Reset cursor to 0
+        buffer.moveCursorTo(0, 0)
+
+        // Move right by 1 should land on continuation (position 1), should auto-adjust
+        buffer.moveCursorRight(1)
+
+        // Cursor should skip to position 2 (next character)
+        assertEquals(2, buffer.getCursor().cx)
+    }
+
+    @Test
+    fun testMovingLeftIntoWideCharacterGoesToStart() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.write('中')  // Wide char at positions 0-1
+        buffer.write('A')   // Character at position 2
+
+        // Cursor at position 3
+        assertEquals(3, buffer.getCursor().cx)
+
+        // Move left: 3 -> 2 (normal)
+        buffer.moveCursorLeft(1)
+        assertEquals(2, buffer.getCursor().cx)
+
+        // Move left again: 2 -> 1 (continuation), should adjust to 0
+        buffer.moveCursorLeft(1)
+        assertEquals(0, buffer.getCursor().cx)  // At wide char start, not in the middle!
+    }
+
+    @Test
+    fun testMovingRightOverWideCharacterSkipsContinuation() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.write('中')  // Wide char at positions 0-1
+        buffer.write('A')   // Character at position 2
+
+        // Reset cursor to start
+        buffer.moveCursorTo(0, 0)
+        assertEquals(0, buffer.getCursor().cx)
+
+        // Move right: 0 -> 1 (continuation), should adjust to 2
+        buffer.moveCursorRight(1)
+        assertEquals(2, buffer.getCursor().cx)  // Skipped over continuation
+    }
+
+    @Test
+    fun testMovingLeftFromContinuationSkipsToWideChar() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.write('A')   // Position 0
+        buffer.write('中')  // Positions 1-2
+
+        // Cursor is now at position 3
+        assertEquals(3, buffer.getCursor().cx)
+
+        // Move left by 1 lands on continuation (position 2)
+        // With preferLeft=true, should adjust to wide char start (position 1)
+        buffer.moveCursorLeft(1)
+
+        assertEquals(1, buffer.getCursor().cx)
+    }
+
+    // ===== Deletion =====
+
+    @Test
+    fun testDeletingWideCharacterRemovesBothCells() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+        line.setCellAt(2, 'A', CellAttributes())
+
+        line.deleteCharAt(0)  // Delete wide character
+
+        // 'A' should now be at position 0
+        assertEquals('A', line.getCell(0)?.char)
+        // Position 1 should be null (or the next character)
+        assertEquals(null, line.getCell(1))
+    }
+
+    @Test
+    fun testDeletingContinuationRemovesWideCharacter() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+        line.setCellAt(2, 'A', CellAttributes())
+
+        line.deleteCharAt(1)  // Delete continuation marker
+
+        // 'A' should now be at position 0
+        assertEquals('A', line.getCell(0)?.char)
+        // Position 1 should be null
+        assertEquals(null, line.getCell(1))
+    }
+
+    // ===== Overwriting =====
+
+    @Test
+    fun testOverwritingWideCharWithSingleCharClearsBoth() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+
+        // Overwrite first cell with single-width character
+        line.setCellAt(0, 'A', CellAttributes())
+
+        assertEquals('A', line.getCell(0)?.char)
+        // Second cell should be cleared (space)
+        assertEquals(' ', line.getCell(1)?.char)
+    }
+
+    @Test
+    fun testOverwritingSingleCharWithWideCharWorks() {
+        val line = Line(10)
+        line.setCellAt(0, 'A', CellAttributes())
+        line.setCellAt(1, 'B', CellAttributes())
+
+        // Overwrite with wide character
+        line.setCellAt(0, '中', CellAttributes())
+
+        assertEquals('中', line.getCell(0)?.char)
+        assertEquals('\u0000', line.getCell(1)?.char)
+    }
+
+    @Test
+    fun testOverwritingContinuationClearsWideChar() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+
+        // Overwrite continuation marker
+        line.setCellAt(1, 'A', CellAttributes())
+
+        // First cell should be cleared
+        assertEquals(' ', line.getCell(0)?.char)
+        assertEquals('A', line.getCell(1)?.char)
+    }
+
+    // ===== String Output =====
+
+    @Test
+    fun testToStringSkipsContinuationMarkers() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+        line.setCellAt(2, '文', CellAttributes())
+        line.setCellAt(4, 'A', CellAttributes())
+
+        // toString should only show actual characters, not continuation markers
+        assertEquals("中文A", line.toString())
+    }
+
+    // ===== Mixed Width Characters =====
+
+    @Test
+    fun testWriteStringWithMixedWidthCharacters() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("A中B文C")
+
+        val line = buffer.getLine(0)
+        assertEquals('A', line.getCell(0)?.char)
+        assertEquals('中', line.getCell(1)?.char)
+        assertEquals('\u0000', line.getCell(2)?.char)
+        assertEquals('B', line.getCell(3)?.char)
+        assertEquals('文', line.getCell(4)?.char)
+        assertEquals('\u0000', line.getCell(5)?.char)
+        assertEquals('C', line.getCell(6)?.char)
+
+        // Cursor should be at position 7 (1 + 2 + 1 + 2 + 1)
+        assertEquals(7, buffer.getCursor().cx)
+    }
+
+    @Test
+    fun testMixedWidthCharactersWrapCorrectly() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("ABCD中文XY")  // 4 single + 2 wide (4 cells) + 2 single = 10 cells
+
+        val line0 = buffer.getLine(0)
+        assertEquals('A', line0.getCell(0)?.char)
+        assertEquals('B', line0.getCell(1)?.char)
+        assertEquals('C', line0.getCell(2)?.char)
+        assertEquals('D', line0.getCell(3)?.char)
+        assertEquals('中', line0.getCell(4)?.char)
+        assertEquals('\u0000', line0.getCell(5)?.char)
+        assertEquals('文', line0.getCell(6)?.char)
+        assertEquals('\u0000', line0.getCell(7)?.char)
+        assertEquals('X', line0.getCell(8)?.char)
+        assertEquals('Y', line0.getCell(9)?.char)
+
+        // Cursor should be at position 10 (line is exactly full)
+        // Wrap only happens when next character is written
+        assertEquals(0, buffer.getCursor().cy)
+        assertEquals(10, buffer.getCursor().cx)
+    }
+
+    // ===== Character Width Detection =====
+
+    @Test
+    fun testCharDisplayWidthForSingleWidth() {
+        assertEquals(1, charDisplayWidth('A'))
+        assertEquals(1, charDisplayWidth('1'))
+        assertEquals(1, charDisplayWidth(' '))
+        assertEquals(1, charDisplayWidth('!'))
+    }
+
+    @Test
+    fun testCharDisplayWidthForCJK() {
+        assertEquals(2, charDisplayWidth('中'))
+        assertEquals(2, charDisplayWidth('文'))
+        assertEquals(2, charDisplayWidth('日'))
+        assertEquals(2, charDisplayWidth('本'))
+        assertEquals(2, charDisplayWidth('語'))
+        assertEquals(2, charDisplayWidth('한'))
+        assertEquals(2, charDisplayWidth('국'))
+        assertEquals(2, charDisplayWidth('어'))
+    }
+
+    @Test
+    fun testStringDisplayWidth() {
+        assertEquals(1, stringDisplayWidth("A"))
+        assertEquals(5, stringDisplayWidth("ABCDE"))
+        assertEquals(2, stringDisplayWidth("中"))
+        assertEquals(4, stringDisplayWidth("中文"))
+        assertEquals(7, stringDisplayWidth("A中B文C"))  // 1+2+1+2+1
+    }
+
+    // ===== Edge Cases =====
+
+    @Test
+    fun testWideCharacterAtLastColumnBecomesNull() {
+        val line = Line(10)
+        line.setCellAt(9, '中', CellAttributes())
+
+        // Should write null instead since continuation doesn't fit
+        assertEquals(null, line.getCell(9))
+    }
+
+    @Test
+    fun testEmptyLineWithWideCharacter() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+
+        assertEquals(2, line.getContentLength())
+    }
+
+    // ===== Wrapping Tests =====
+
+    @Test
+    fun testWideCharacterWrapsCorrectlyInInsertText() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.insertTextWithWrapping("中文", moveCursor = true)
+
+        val line = buffer.getLine(0)
+        assertEquals('中', line.getCell(0)?.char)
+        assertEquals('\u0000', line.getCell(1)?.char)
+        assertEquals('文', line.getCell(2)?.char)
+        assertEquals('\u0000', line.getCell(3)?.char)
+
+        assertEquals(4, buffer.getCursor().cx)
+    }
+
+    @Test
+    fun testWideCharacterOverflowInInsertText() {
+        val buffer = TerminalBuffer(5, 3, 100, CellAttributes())
+        buffer.writeString("ABC")  // Positions 0-2
+        buffer.moveCursorTo(0, 3)  // Position 3
+
+        // Insert "中文" at position 3
+        // "中" needs 2 cells (3-4), "文" needs 2 cells (5-6, overflows)
+        buffer.insertTextWithWrapping("中文", moveCursor = true)
+
+        val line0 = buffer.getLine(0)
+        assertEquals('A', line0.getCell(0)?.char)
+        assertEquals('B', line0.getCell(1)?.char)
+        assertEquals('C', line0.getCell(2)?.char)
+        assertEquals('中', line0.getCell(3)?.char)
+        assertEquals('\u0000', line0.getCell(4)?.char)
+
+        val line1 = buffer.getLine(1)
+        assertEquals('文', line1.getCell(0)?.char)
+        assertEquals('\u0000', line1.getCell(1)?.char)
+    }
+
+    // ===== Emoji Tests =====
+
+    @Test
+    fun testEmojiDisplayWidth() {
+        // Test some common emojis (these are in BMP)
+        assertEquals(2, charDisplayWidth('⌚'))  // Watch (U+231A)
+
+        // Test emoji code points (supplementary plane)
+        assertEquals(2, charDisplayWidth(0x1F600))  // 😀 Grinning face
+        assertEquals(2, charDisplayWidth(0x1F680))  // 🚀 Rocket
+    }
+
+    // ===== Clear Operations =====
+
+    @Test
+    fun testClearCellAtWideCharacter() {
+        val line = Line(10)
+        line.setCellAt(0, 'A', CellAttributes())
+        line.setCellAt(1, '中', CellAttributes())
+        line.setCellAt(3, 'B', CellAttributes())
+
+        // Clear the wide character (first cell)
+        line.clearCellAt(1)
+
+        // Both cells of the wide character should be cleared
+        assertEquals('A', line.getCell(0)?.char)
+        assertEquals(' ', line.getCell(1)?.char)  // Gap filled
+        assertEquals(' ', line.getCell(2)?.char)  // Gap filled (was continuation)
+        assertEquals('B', line.getCell(3)?.char)
+    }
+
+    @Test
+    fun testClearCellAtContinuation() {
+        val line = Line(10)
+        line.setCellAt(0, 'A', CellAttributes())
+        line.setCellAt(1, '中', CellAttributes())
+        line.setCellAt(3, 'B', CellAttributes())
+
+        // Clear the continuation marker (second cell)
+        line.clearCellAt(2)
+
+        // Both cells of the wide character should be cleared
+        assertEquals('A', line.getCell(0)?.char)
+        assertEquals(' ', line.getCell(1)?.char)  // Gap filled (was wide char)
+        assertEquals(' ', line.getCell(2)?.char)  // Gap filled
+        assertEquals('B', line.getCell(3)?.char)
+    }
+
+    @Test
+    fun testClearRangeWithWideCharacter() {
+        val line = Line(10)
+        line.setCellAt(0, 'A', CellAttributes())
+        line.setCellAt(1, '中', CellAttributes())
+        line.setCellAt(3, '文', CellAttributes())
+        line.setCellAt(5, 'B', CellAttributes())
+
+        // Clear range [1, 4) - should include both wide characters
+        line.clearRange(1, 4)
+
+        assertEquals('A', line.getCell(0)?.char)
+        // Cells 1-4 should be cleared (both wide chars)
+        assertEquals(' ', line.getCell(1)?.char)
+        assertEquals(' ', line.getCell(2)?.char)
+        assertEquals(' ', line.getCell(3)?.char)
+        assertEquals(' ', line.getCell(4)?.char)
+        assertEquals('B', line.getCell(5)?.char)
+    }
+
+    @Test
+    fun testClearRangeStartsOnContinuation() {
+        val line = Line(10)
+        line.setCellAt(0, '中', CellAttributes())
+        line.setCellAt(2, 'A', CellAttributes())
+
+        // Clear range starting on continuation [1, 3)
+        // Should expand to include the wide character at position 0
+        line.clearRange(1, 3)
+
+        // Wide character and 'A' should be cleared
+        assertEquals(null, line.getCell(0))
+        assertEquals(null, line.getCell(1))
+        assertEquals(null, line.getCell(2))
+    }
+
+    @Test
+    fun testClearRangeEndsOnWideCharacter() {
+        val line = Line(10)
+        line.setCellAt(0, 'A', CellAttributes())
+        line.setCellAt(1, '中', CellAttributes())
+        line.setCellAt(3, 'B', CellAttributes())
+
+        // Clear range [0, 2) - ends on wide character
+        // Should expand to include continuation at position 2
+        line.clearRange(0, 2)
+
+        // 'A' and wide character should be cleared
+        assertEquals(' ', line.getCell(0)?.char)
+        assertEquals(' ', line.getCell(1)?.char)
+        assertEquals(' ', line.getCell(2)?.char)
+        assertEquals('B', line.getCell(3)?.char)
+    }
+
+    // ===== Complex Scenarios =====
+
+    @Test
+    fun testDeleteCharacterAtCursorWithWideChar() {
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("A中B")
+
+        // Move cursor to the wide character (position 1)
+        buffer.moveCursorTo(0, 1)
+        buffer.deleteCharacterAtCursor()
+
+        val line = buffer.getLine(0)
+        assertEquals('A', line.getCell(0)?.char)
+        assertEquals('B', line.getCell(1)?.char)
+        assertEquals(null, line.getCell(2))
+    }
+
+    @Test
+    fun testMultipleWideCharactersOnSameLine() {
+        val buffer = TerminalBuffer(20, 3, 100, CellAttributes())
+        buffer.writeString("中文日本語한국어")
+
+        val line = buffer.getLine(0)
+        var pos = 0
+
+        // 中 at 0-1
+        assertEquals('中', line.getCell(pos)?.char)
+        assertEquals('\u0000', line.getCell(pos + 1)?.char)
+        pos += 2
+
+        // 文 at 2-3
+        assertEquals('文', line.getCell(pos)?.char)
+        assertEquals('\u0000', line.getCell(pos + 1)?.char)
+        pos += 2
+
+        // 日 at 4-5
+        assertEquals('日', line.getCell(pos)?.char)
+        assertEquals('\u0000', line.getCell(pos + 1)?.char)
+        pos += 2
+
+        // 本 at 6-7
+        assertEquals('本', line.getCell(pos)?.char)
+        assertEquals('\u0000', line.getCell(pos + 1)?.char)
+        pos += 2
+
+        // 語 at 8-9
+        assertEquals('語', line.getCell(pos)?.char)
+        assertEquals('\u0000', line.getCell(pos + 1)?.char)
+        pos += 2
+
+        // 한 at 10-11
+        assertEquals('한', line.getCell(pos)?.char)
+        assertEquals('\u0000', line.getCell(pos + 1)?.char)
+        pos += 2
+
+        // 국 at 12-13
+        assertEquals('국', line.getCell(pos)?.char)
+        assertEquals('\u0000', line.getCell(pos + 1)?.char)
+        pos += 2
+
+        // 어 at 14-15
+        assertEquals('어', line.getCell(pos)?.char)
+        assertEquals('\u0000', line.getCell(pos + 1)?.char)
+
+        assertEquals("中文日本語한국어", line.toString())
+    }
+
+
+    // --- Width Changes ---
+
+    @Test
+    fun resizeWidthIncrease() {
+        // Width increase: should pad lines with space (no unwrapping)
+        val buffer = TerminalBuffer(5, 3, 100, CellAttributes())
+        buffer.writeString("Hello")
+        buffer.newLine()
+        buffer.writeString("World")
+
+        buffer.resize(10, 3)
+
+        assertEquals(10, buffer.width)
+        assertEquals(3, buffer.height)
+        assertEquals("Hello", buffer.getLine(0).toString())
+        assertEquals("World", buffer.getLine(1).toString())
+    }
+
+    @Test
+    fun resizeWidthDecrease() {
+        // Width decrease: should wrap overflow to new lines
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("HelloWorld")  // 10 chars, exactly fits
+
+        buffer.resize(5, 3)
+
+        assertEquals(5, buffer.width)
+        assertEquals(3, buffer.height)
+        // "HelloWorld" should wrap to "Hello" + "World"
+        assertEquals("Hello", buffer.getLine(0).toString())
+        assertEquals("World", buffer.getLine(1).toString())
+    }
+
+    @Test
+    fun resizeWidthDecreaseWithWideChar() {
+        // Width decrease with wide character at boundary
+        val buffer = TerminalBuffer(6, 3, 100, CellAttributes())
+        buffer.writeString("AB中CD")  // Width: 1+1+2+1+1 = 6
+
+        buffer.resize(3, 3)
+
+        // Should wrap to "AB" + "中C" + "D"
+        assertEquals("AB", buffer.getLine(0).toString())
+        assertEquals("中C", buffer.getLine(1).toString())
+        assertEquals("D", buffer.getLine(2).toString())
+    }
+
+    // --- Height Changes ---
+
+    @Test
+    fun resizeHeightIncrease() {
+        // Height increase: should add blank lines at bottom
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("Line1")
+        buffer.newLine()
+        buffer.writeString("Line2")
+        buffer.newLine()
+        buffer.writeString("Line3")
+
+        buffer.resize(10, 5)
+
+        assertEquals(10, buffer.width)
+        assertEquals(5, buffer.height)
+        assertEquals("Line1", buffer.getLine(0).toString())
+        assertEquals("Line2", buffer.getLine(1).toString())
+        assertEquals("Line3", buffer.getLine(2).toString())
+        assertEquals("", buffer.getLine(3).toString())  // Blank line
+        assertEquals("", buffer.getLine(4).toString())  // Blank line
+    }
+
+    @Test
+    fun resizeHeightDecrease() {
+        // Height decrease: should move excess lines to scrollback
+        val buffer = TerminalBuffer(10, 5, 100, CellAttributes())
+        buffer.writeString("Line1")
+        buffer.newLine()
+        buffer.writeString("Line2")
+        buffer.newLine()
+        buffer.writeString("Line3")
+        buffer.newLine()
+        buffer.writeString("Line4")
+        buffer.newLine()
+        buffer.writeString("Line5")
+
+        buffer.resize(10, 3)
+
+        assertEquals(10, buffer.width)
+        assertEquals(3, buffer.height)
+        // Last 3 lines should be visible
+        assertEquals("Line3", buffer.getLine(0).toString())
+        assertEquals("Line4", buffer.getLine(1).toString())
+        assertEquals("Line5", buffer.getLine(2).toString())
+        // First 2 lines should be in scrollback
+        assertEquals(2, buffer.getScrollbackSize())
+    }
+
+    @Test
+    fun resizeHeightDecreaseToOne() {
+        // Extreme case: decrease height to 1
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("Line1")
+        buffer.newLine()
+        buffer.writeString("Line2")
+        buffer.newLine()
+        buffer.writeString("Line3")
+
+        buffer.resize(10, 1)
+
+        assertEquals(1, buffer.height)
+        assertEquals("Line3", buffer.getLine(0).toString())
+        assertEquals(2, buffer.getScrollbackSize())
+    }
+
+    // --- Combined Width and Height Changes ---
+
+    @Test
+    fun resizeBothDimensions() {
+        // Change both width and height
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("HelloWorld")
+        buffer.newLine()
+        buffer.writeString("TestString")
+
+        buffer.resize(5, 5)
+
+        // Width decreased: wrapping occurs
+        // Height increased: blank lines added
+        assertEquals(5, buffer.width)
+        assertEquals(5, buffer.height)
+        assertEquals("Hello", buffer.getLine(0).toString())
+        assertEquals("World", buffer.getLine(1).toString())
+        assertEquals("TestS", buffer.getLine(2).toString())
+        assertEquals("tring", buffer.getLine(3).toString())
+        assertEquals("", buffer.getLine(4).toString())
+    }
+
+    // --- Cursor Position ---
+
+    @Test
+    fun resizeCursorClamped() {
+        // Cursor at (5, 2), resize smaller: cursor should be clamped
+        val buffer = TerminalBuffer(10, 5, 100, CellAttributes())
+        buffer.moveCursorTo(2, 5)
+
+        buffer.resize(4, 3)
+
+        val cursor = buffer.getCursor()
+        assertTrue(cursor.cx < 4)
+        assertTrue(cursor.cy < 3)
+    }
+
+    @Test
+    fun resizeCursorAtEnd() {
+        // Cursor at end, resize: cursor should adjust
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.moveCursorTo(2, 9)  // Last row, last column
+
+        buffer.resize(5, 2)
+
+        val cursor = buffer.getCursor()
+        assertTrue(cursor.cx < 5)
+        assertTrue(cursor.cy < 2)
+    }
+
+    @Test
+    fun resizeCursorNotOnContinuation() {
+        // After resize, cursor should not be on continuation cell
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("A中B")  // A at 0, 中 at 1-2, B at 3
+        buffer.moveCursorTo(0, 2)  // Move cursor to continuation cell
+
+        buffer.resize(8, 3)
+
+        val cursor = buffer.getCursor()
+        // Cursor should be adjusted to not be on continuation
+        val cell = buffer.getLine(cursor.cy).getCell(cursor.cx)
+        assertTrue(cell?.char != '\u0000')
+    }
+
+    // --- Scrollback ---
+
+    @Test
+    fun resizeEmptyScrollback() {
+        // Resize with empty scrollback should work
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("Test")
+
+        buffer.resize(5, 3)
+
+        assertEquals(0, buffer.getScrollbackSize())
+        assertEquals("Test", buffer.getLine(0).toString())
+    }
+
+    @Test
+    fun resizeWithScrollback() {
+        // Resize should also reflow scrollback content
+        val buffer = TerminalBuffer(10, 2, 100, CellAttributes())
+        // Fill screen and create scrollback
+        buffer.writeString("First_Line")
+        buffer.newLine()
+        buffer.writeString("SecondLine")
+        buffer.newLine()
+        buffer.writeString("Third_Line")  // This causes "First_Line" to scroll
+
+        assertEquals(1, buffer.getScrollbackSize())
+
+        buffer.resize(5, 2)
+
+        // Scrollback should also be reflowed
+        // "First_Line" (10 chars) wraps to "First" + "_Line"
+        // "SecondLine" (10 chars) wraps to "Secon" + "dLine"
+        // "Third_Line" (10 chars) wraps to "Third" + "_Line"
+        // With height=2, screen shows last 2 lines, rest in scrollback
+        assertTrue(buffer.getScrollbackSize() > 1)
+    }
+
+    @Test
+    fun resizePreservesScrollbackContent() {
+        // Content in scrollback should be preserved and accessible after resize
+        val buffer = TerminalBuffer(10, 2, 100, CellAttributes())
+        buffer.writeString("Line1")
+        buffer.newLine()
+        buffer.writeString("Line2")
+        buffer.newLine()
+        buffer.writeString("Line3")  // Line1 goes to scrollback
+
+        buffer.resize(8, 2)
+
+        // Line1 should still be in scrollback
+        assertTrue(buffer.getScrollbackSize() >= 1)
+    }
+
+    // --- Viewport Offset ---
+
+    @Test
+    fun resizeAdjustsViewportOffset() {
+        // Viewport offset should be clamped to new scrollback size
+        val buffer = TerminalBuffer(10, 2, 100, CellAttributes())
+        buffer.writeString("Line1")
+        buffer.newLine()
+        buffer.writeString("Line2")
+        buffer.newLine()
+        buffer.writeString("Line3")
+
+        buffer.scrollUp(1)  // Scroll up into scrollback
+        val offsetBefore = buffer.getViewportOffset()
+        assertTrue(offsetBefore > 0)
+
+        buffer.resize(10, 3)
+
+        // Offset should be adjusted (clamped to new scrollback size)
+        val offsetAfter = buffer.getViewportOffset()
+        assertTrue(offsetAfter <= buffer.getScrollbackSize())
+    }
+
+    @Test
+    fun resizeWithMaxViewportOffset() {
+        // Edge case: viewport at max offset
+        val buffer = TerminalBuffer(10, 2, 100, CellAttributes())
+        for (i in 1..10) {
+            buffer.writeString("Line$i")
+            buffer.newLine()
+        }
+
+        buffer.scrollToTop()  // Scroll to top of scrollback
+
+        buffer.resize(10, 3)
+
+        // Offset should be adjusted but not exceed new scrollback size
+        assertTrue(buffer.getViewportOffset() <= buffer.getScrollbackSize())
+    }
+
+    // --- Edge Cases ---
+
+    @Test
+    fun resizeSameDimensions() {
+        // Resize to same dimensions should be no-op
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("Test")
+        val cursor = buffer.getCursor()
+        val originalCx = cursor.cx
+        val originalCy = cursor.cy
+
+        buffer.resize(10, 3)
+
+        assertEquals(10, buffer.width)
+        assertEquals(3, buffer.height)
+        assertEquals("Test", buffer.getLine(0).toString())
+        assertEquals(originalCx, cursor.cx)
+        assertEquals(originalCy, cursor.cy)
+    }
+
+    @Test
+    fun resizeToMinimalSize() {
+        // Resize to 1x1
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("Test")
+
+        buffer.resize(1, 1)
+
+        assertEquals(1, buffer.width)
+        assertEquals(1, buffer.height)
+    }
+
+    @Test
+    fun resizeEmptyBuffer() {
+        // Resize empty buffer should work
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+
+        buffer.resize(5, 5)
+
+        assertEquals(5, buffer.width)
+        assertEquals(5, buffer.height)
+        assertEquals("", buffer.getLine(0).toString())
+    }
+
+    @Test
+    fun resizeVeryWideToNarrow() {
+        // Very wide line (200 chars) to narrow width (20)
+        val buffer = TerminalBuffer(200, 3, 100, CellAttributes())
+        val longString = "A".repeat(200)
+        buffer.writeString(longString)
+
+        buffer.resize(20, 3)
+
+        // Should wrap into multiple lines
+        // 200 chars / 20 width = 10 lines, but we only have height 3
+        // So 7 lines go to scrollback, 3 lines on screen
+        assertEquals(20, buffer.width)
+        assertEquals(3, buffer.height)
+        assertTrue(buffer.getScrollbackSize() >= 7)
+    }
+
+    @Test
+    fun resizeMultipleWideCharsAtBoundaries() {
+        // Multiple wide chars at various positions
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("A中B文C")  // 1+2+1+2+1 = 7
+
+        buffer.resize(3, 3)
+
+        // Should wrap correctly without splitting any wide char
+        // Expected: "A中" (width 3), "B文" (width 3), "C" (width 1)
+        assertEquals("A中", buffer.getLine(0).toString())
+        assertEquals("B文", buffer.getLine(1).toString())
+        assertEquals("C", buffer.getLine(2).toString())
+    }
+
+    // --- Integration Tests ---
+
+    @Test
+    fun resizeWriteResize() {
+        // Write content, resize, write more, verify consistency
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("Hello")
+
+        buffer.resize(5, 3)
+        assertEquals("Hello", buffer.getLine(0).toString())
+
+        buffer.moveCursorTo(1, 0)
+        buffer.writeString("World")
+        assertEquals("World", buffer.getLine(1).toString())
+
+        buffer.resize(3, 3)
+        // "Hello" wraps to "Hel" + "lo"
+        // "World" wraps to "Wor" + "ld"
+        assertEquals("Hel", buffer.getLine(0).toString())
+        assertEquals("lo", buffer.getLine(1).toString())
+        // Next lines are "Wor" and "ld" but they scrolled up
+    }
+
+    @Test
+    fun resizeScrollResize() {
+        // Resize, scroll, resize again
+        val buffer = TerminalBuffer(10, 2, 100, CellAttributes())
+        buffer.writeString("Line1")
+        buffer.newLine()
+        buffer.writeString("Line2")
+        buffer.newLine()
+        buffer.writeString("Line3")
+
+        buffer.resize(8, 2)
+        buffer.scrollUp(1)
+
+        buffer.resize(6, 3)
+
+        // Should handle gracefully
+        assertEquals(6, buffer.width)
+        assertEquals(3, buffer.height)
+    }
+
+    @Test
+    fun resizeSequential() {
+        // Multiple sequential resizes
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("Test")
+
+        buffer.resize(8, 3)
+        assertEquals(8, buffer.width)
+        assertEquals("Test", buffer.getLine(0).toString())
+
+        buffer.resize(6, 2)
+        assertEquals(6, buffer.width)
+        assertEquals(2, buffer.height)
+        assertEquals("Test", buffer.getLine(0).toString())
+
+        buffer.resize(4, 4)
+        assertEquals(4, buffer.width)
+        assertEquals(4, buffer.height)
+        assertEquals("Test", buffer.getLine(0).toString())
+    }
+
+    @Test
+    fun resizePreservesAttributes() {
+        // Attributes should be preserved through resize
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        val redAttr = CellAttributes(fgColor = TerminalColor.Red)
+        buffer.setAttributes(redAttr)
+        buffer.writeString("Red")
+
+        buffer.resize(5, 3)
+
+        assertEquals("Red", buffer.getLine(0).toString())
+        val cell = buffer.getLine(0).getCell(0)
+        assertEquals(TerminalColor.Red, cell?.attributes?.fgColor)
+    }
+
+    @Test
+    fun resizeAfterWideCharacterOperations() {
+        // Ensure wide character handling is correct after resize
+        val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
+        buffer.writeString("中文日")  // Three wide chars
+
+        buffer.resize(4, 3)
+
+        // Each wide char takes 2 columns
+        // "中文" (width 4) fits on first line
+        // "日" (width 2) wraps to second line
+        assertEquals("中文", buffer.getLine(0).toString())
+        assertEquals("日", buffer.getLine(1).toString())
+
+        // Verify continuation markers
+        assertEquals('\u0000', buffer.getLine(0).getCell(1)?.char)
+        assertEquals('\u0000', buffer.getLine(0).getCell(3)?.char)
+        assertEquals('\u0000', buffer.getLine(1).getCell(1)?.char)
+    }
 }

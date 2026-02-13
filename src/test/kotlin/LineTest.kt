@@ -405,4 +405,229 @@ class LineTest {
             line.writeWithWrapping(10, "Test")
         }
     }
+
+    // --- reflowToWidth tests (TDD - tests first) ---
+
+    @Test
+    fun reflowToWidthIncreasesPadding() {
+        // Width increase: should pad line with spaces
+        val line = Line(5)
+        line.setCellAt(0, 'A')
+        line.setCellAt(1, 'B')
+        line.setCellAt(2, 'C')
+
+        val reflowed = line.reflowToWidth(10)
+
+        // Should return single line, padded to new width
+        assertEquals(1, reflowed.size)
+        assertEquals(10, reflowed[0].maxCells)
+        assertEquals("ABC", reflowed[0].toString())
+    }
+
+    @Test
+    fun reflowToWidthDecreasesWithSimpleWrap() {
+        // Width decrease: "ABCDEF" (width=6) -> width=3 should become "ABC" + "DEF"
+        val line = Line(6)
+        line.setCellAt(0, 'A')
+        line.setCellAt(1, 'B')
+        line.setCellAt(2, 'C')
+        line.setCellAt(3, 'D')
+        line.setCellAt(4, 'E')
+        line.setCellAt(5, 'F')
+
+        val reflowed = line.reflowToWidth(3)
+
+        // Should wrap into two lines
+        assertEquals(2, reflowed.size)
+        assertEquals("ABC", reflowed[0].toString())
+        assertEquals("DEF", reflowed[1].toString())
+    }
+
+    @Test
+    fun reflowToWidthWithWideCharNotAtBoundary() {
+        // Wide char before boundary: "AB中" (width=5) -> width=4 should stay "AB中"
+        val line = Line(5)
+        line.setCellAt(0, 'A')
+        line.setCellAt(1, 'B')
+        line.setCellAt(2, '中')  // Wide char at position 2-3
+
+        val reflowed = line.reflowToWidth(4)
+
+        // Wide char fits on first line, no split needed
+        assertEquals(1, reflowed.size)
+        assertEquals("AB中", reflowed[0].toString())
+    }
+
+    @Test
+    fun reflowToWidthWithWideCharExactlyAtBoundary() {
+        // CRITICAL: Wide char at boundary: "AB中CD" (width=6) -> width=3
+        // Should become "AB" + "中C" + "D" (wide char moved to next line, NOT split)
+        val line = Line(6)
+        line.setCellAt(0, 'A')
+        line.setCellAt(1, 'B')
+        line.setCellAt(2, '中')  // Wide char at position 2-3
+        line.setCellAt(4, 'C')
+        line.setCellAt(5, 'D')
+
+        val reflowed = line.reflowToWidth(3)
+
+        // Wide char should move to next line to avoid splitting
+        // Line 1: "AB" (width 2, can't fit wide char which needs 2 more columns)
+        // Line 2: "中C" (width 3, wide char takes 2 columns + C takes 1)
+        // Line 3: "D" (width 1)
+        assertEquals(3, reflowed.size)
+        assertEquals("AB", reflowed[0].toString())
+        assertEquals("中C", reflowed[1].toString())
+        assertEquals("D", reflowed[2].toString())
+
+        // Verify continuation markers are preserved
+        assertEquals('中', reflowed[1].getCell(0)?.char)
+        assertEquals('\u0000', reflowed[1].getCell(1)?.char)  // Continuation marker
+        assertEquals('C', reflowed[1].getCell(2)?.char)
+    }
+
+    @Test
+    fun reflowToWidthWithMultipleWideChars() {
+        // Multiple wide chars: "A中B文C" (width=7) -> width=3
+        // Should wrap: "A中" (positions 0-2) + "B文" (positions 0-2) + "C" (position 0)
+        val line = Line(7)
+        line.setCellAt(0, 'A')
+        line.setCellAt(1, '中')  // Wide char at 1-2
+        line.setCellAt(3, 'B')
+        line.setCellAt(4, '文')  // Wide char at 4-5
+        line.setCellAt(6, 'C')
+
+        val reflowed = line.reflowToWidth(3)
+
+        assertEquals(3, reflowed.size)
+        assertEquals("A中", reflowed[0].toString())
+        assertEquals("B文", reflowed[1].toString())
+        assertEquals("C", reflowed[2].toString())
+    }
+
+    @Test
+    fun reflowToWidthWithOnlyWideChars() {
+        // Only wide chars: "中文日" (width=6) -> width=2 should become "中" + "文" + "日"
+        val line = Line(6)
+        line.setCellAt(0, '中')  // Wide char at 0-1
+        line.setCellAt(2, '文')  // Wide char at 2-3
+        line.setCellAt(4, '日')  // Wide char at 4-5
+
+        val reflowed = line.reflowToWidth(2)
+
+        assertEquals(3, reflowed.size)
+        assertEquals("中", reflowed[0].toString())
+        assertEquals("文", reflowed[1].toString())
+        assertEquals("日", reflowed[2].toString())
+    }
+
+    @Test
+    fun reflowToWidthEmptyLine() {
+        // Empty line should reflow to single empty line of new width
+        val line = Line(10)
+
+        val reflowed = line.reflowToWidth(5)
+
+        assertEquals(1, reflowed.size)
+        assertEquals(5, reflowed[0].maxCells)
+        assertEquals("", reflowed[0].toString())
+    }
+
+    @Test
+    fun reflowToWidthSameWidth() {
+        // Same width: no change needed
+        val line = Line(5)
+        line.setCellAt(0, 'A')
+        line.setCellAt(1, 'B')
+        line.setCellAt(2, 'C')
+
+        val reflowed = line.reflowToWidth(5)
+
+        assertEquals(1, reflowed.size)
+        assertEquals("ABC", reflowed[0].toString())
+    }
+
+    @Test
+    fun reflowToWidthPreservesAttributes() {
+        // Attributes should be preserved through reflow
+        val line = Line(6)
+        val redAttr = CellAttributes(fgColor = TerminalColor.Red)
+        val blueAttr = CellAttributes(fgColor = TerminalColor.Blue)
+
+        line.setCellAt(0, 'A', redAttr)
+        line.setCellAt(1, 'B', redAttr)
+        line.setCellAt(2, 'C', blueAttr)
+        line.setCellAt(3, 'D', blueAttr)
+
+        val reflowed = line.reflowToWidth(2)
+
+        assertEquals(2, reflowed.size)
+        assertEquals('A', reflowed[0].getCell(0)?.char)
+        assertEquals(TerminalColor.Red, reflowed[0].getCell(0)?.attributes?.fgColor)
+        assertEquals('B', reflowed[0].getCell(1)?.char)
+        assertEquals(TerminalColor.Red, reflowed[0].getCell(1)?.attributes?.fgColor)
+        assertEquals('C', reflowed[1].getCell(0)?.char)
+        assertEquals(TerminalColor.Blue, reflowed[1].getCell(0)?.attributes?.fgColor)
+        assertEquals('D', reflowed[1].getCell(1)?.char)
+        assertEquals(TerminalColor.Blue, reflowed[1].getCell(1)?.attributes?.fgColor)
+    }
+
+    @Test
+    fun reflowToWidthVeryNarrow() {
+        // Very narrow width (1) with wide chars - wide char should wrap to next line
+        val line = Line(5)
+        line.setCellAt(0, 'A')
+        line.setCellAt(1, '中')  // Wide char
+        line.setCellAt(3, 'B')
+
+        val reflowed = line.reflowToWidth(2)
+
+        // Each wide char needs 2 columns, so "A" wraps, then "中" takes full line, then "B"
+        assertEquals(3, reflowed.size)
+        assertEquals("A", reflowed[0].toString())
+        assertEquals("中", reflowed[1].toString())
+        assertEquals("B", reflowed[2].toString())
+    }
+
+    @Test
+    fun reflowToWidthLongLineToNarrow() {
+        // Long line wrapping to very narrow width
+        val line = Line(20)
+        for (i in 0 until 20) {
+            line.setCellAt(i, ('A'.code + i).toChar())
+        }
+
+        val reflowed = line.reflowToWidth(5)
+
+        // Should wrap into 4 lines (20 chars / 5 width = 4 lines)
+        assertEquals(4, reflowed.size)
+        assertEquals("ABCDE", reflowed[0].toString())
+        assertEquals("FGHIJ", reflowed[1].toString())
+        assertEquals("KLMNO", reflowed[2].toString())
+        assertEquals("PQRST", reflowed[3].toString())
+    }
+
+    @Test
+    fun reflowToWidthWideCharAtEveryBoundary() {
+        // Wide chars positioned exactly at split boundaries
+        // "A中B文C" (width=7) -> width=2
+        // Positions: A=0, 中=1-2, B=3, 文=4-5, C=6
+        // Split at width=2: [A] [中] [B] [文] [C]
+        val line = Line(7)
+        line.setCellAt(0, 'A')
+        line.setCellAt(1, '中')
+        line.setCellAt(3, 'B')
+        line.setCellAt(4, '文')
+        line.setCellAt(6, 'C')
+
+        val reflowed = line.reflowToWidth(2)
+
+        // Each line can hold at most 1 single char OR 1 wide char
+        assertEquals(5, reflowed.size)
+        assertEquals("A", reflowed[0].toString())
+        assertEquals("中", reflowed[1].toString())
+        assertEquals("B", reflowed[2].toString())
+        assertEquals("文", reflowed[3].toString())
+        assertEquals("C", reflowed[4].toString())
+    }
 }

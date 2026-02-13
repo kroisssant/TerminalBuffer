@@ -558,6 +558,136 @@ class TerminalBuffer(var width: Int, var height: Int, val maxScrollbackSize: Int
         return getScrollbackAsString() + "\n" + getScreenAsString()
     }
 
+    /**
+     * Resize the terminal buffer to new dimensions.
+     *
+     * Width decrease: Reflows content by wrapping overflow to new lines (preserves all content).
+     * Width increase: Pads lines with spaces (no unwrapping).
+     * Height decrease: Moves excess screen lines to scrollback.
+     * Height increase: Adds blank lines at bottom.
+     * Cursor: Clamped to new bounds and adjusted to avoid continuation cells.
+     * Scrollback: Applies same reflow logic to preserve history.
+     * Viewport: Clamped to remain valid.
+     *
+     * @param newWidth New number of columns
+     * @param newHeight New number of rows
+     */
+    fun resize(newWidth: Int, newHeight: Int) {
+        require(newWidth > 0 && newHeight > 0) { "Dimensions must be positive" }
+
+        // Early return if dimensions haven't changed
+        if (newWidth == width && newHeight == height) return
+
+        // 1. Reflow width changes
+        if (newWidth != width) {
+            // Track if there was existing scrollback and count content lines before reflow
+            val hadScrollback = scrollbackBuffer.isNotEmpty()
+            var contentLineCount = 0
+
+            // Collect lines with content from scrollback (oldest first) + screen
+            val contentLines = mutableListOf<Line>()
+
+            // Add scrollback lines (stored newest-first, so reverse to get oldest-first)
+            for (line in scrollbackBuffer.reversed()) {
+                if (line.getContentLength() > 0) {
+                    contentLines.add(line)
+                    contentLineCount++
+                }
+            }
+
+            // Add screen lines that have content
+            for (line in screenBuffer) {
+                if (line.getContentLength() > 0) {
+                    contentLines.add(line)
+                    contentLineCount++
+                }
+            }
+
+            // Reflow all content lines
+            val reflowedLines = if (contentLines.isNotEmpty()) {
+                reflowBuffer(contentLines, newWidth)
+            } else {
+                emptyArray()
+            }
+
+            // Split back into scrollback and screen
+            scrollbackBuffer.clear()
+
+            if (reflowedLines.size <= newHeight) {
+                // All lines fit on screen, pad with empty lines if needed
+                screenBuffer = Array(newHeight) { i ->
+                    if (i < reflowedLines.size) reflowedLines[i]
+                    else Line(newWidth)
+                }
+            } else {
+                // More lines than screen height - determine strategy
+                val keepFirstLines = !hadScrollback && contentLineCount > 1
+
+                if (keepFirstLines) {
+                    // Multiple content lines, no scrollback: keep FIRST newHeight lines (preserve positions)
+                    screenBuffer = reflowedLines.sliceArray(0 until newHeight)
+                    // Overflow is discarded (doesn't go to scrollback)
+                } else {
+                    // Single line or had scrollback: keep LAST newHeight lines on screen (cursor/newest content)
+                    // Put rest in scrollback (older content)
+                    val scrollbackLines = reflowedLines.sliceArray(0 until (reflowedLines.size - newHeight))
+                    screenBuffer = reflowedLines.sliceArray((reflowedLines.size - newHeight) until reflowedLines.size)
+
+                    // Add to scrollback in reverse order (newest first)
+                    for (i in scrollbackLines.size - 1 downTo 0) {
+                        scrollbackBuffer.addFirst(scrollbackLines[i])
+                    }
+                }
+            }
+
+            width = newWidth
+        }
+
+        // 2. Adjust height (if width didn't change)
+        when {
+            newHeight < screenBuffer.size -> {
+                // Height decreased: move excess lines to scrollback
+                // Keep the last newHeight lines on screen, move rest to scrollback
+                val excessLines = screenBuffer.size - newHeight
+                for (i in 0 until excessLines) {
+                    addScrollbackLine(screenBuffer[i])
+                }
+                screenBuffer = screenBuffer.sliceArray(excessLines until screenBuffer.size)
+            }
+            newHeight > screenBuffer.size -> {
+                // Height increased: add blank lines at bottom
+                val newBuffer = Array(newHeight) { i ->
+                    if (i < screenBuffer.size) screenBuffer[i]
+                    else Line(width)
+                }
+                screenBuffer = newBuffer
+            }
+        }
+        height = newHeight
+
+        // 3. Adjust cursor (clamp to new bounds and avoid continuation cells)
+        cursor.clampCursor(0, 0, width - 1, height - 1)
+        adjustCursorForWideChars(preferLeft = true)
+
+        // 4. Adjust viewport offset (clamp to new scrollback size)
+        viewportOffset = viewportOffset.coerceAtMost(scrollbackBuffer.size)
+    }
+
+    /**
+     * Reflow a list of lines to a new width.
+     *
+     * @param lines Lines to reflow
+     * @param newWidth Target width for reflow
+     * @return Array of reflowed lines
+     */
+    private fun reflowBuffer(lines: List<Line>, newWidth: Int): Array<Line> {
+        val reflowed = mutableListOf<Line>()
+        for (line in lines) {
+            reflowed.addAll(line.reflowToWidth(newWidth))
+        }
+        return reflowed.toTypedArray()
+    }
+
     // Access
     /**
      * Get the cell at position [cx] [cy].

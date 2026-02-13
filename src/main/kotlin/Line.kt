@@ -377,6 +377,96 @@ class Line(initialCapacity: Int) {
         return overflow
     }
 
+    /**
+     * Reflow this line to a new width, returning a list of lines.
+     *
+     * Width increase: Returns a single line padded to the new width.
+     * Width decrease: Wraps content into multiple lines, properly handling wide characters
+     *                 at boundaries (moves them to next line instead of splitting).
+     *
+     * @param newWidth The target width for reflow
+     * @return List of reflowed lines
+     */
+    fun reflowToWidth(newWidth: Int): List<Line> {
+        require(newWidth > 0) { "newWidth must be positive" }
+
+        val contentLength = getContentLength()
+
+        // Handle empty line
+        if (contentLength == 0) {
+            return listOf(Line(newWidth))
+        }
+
+        // Width increase or same: just copy to new width
+        if (newWidth >= maxCells) {
+            val newLine = Line(newWidth)
+            for (i in 0 until contentLength) {
+                val cell = cells[i]
+                if (cell != null) {
+                    newLine.cells[i] = Cell(cell.char, cell.attributes)
+                }
+            }
+            return listOf(newLine)
+        }
+
+        // Width decrease: wrap content into multiple lines
+        val result = mutableListOf<Line>()
+
+        // Collect all actual cells (characters with their attributes)
+        // Skip continuation markers during collection - we'll recreate them
+        val cellsToReflow = mutableListOf<Cell>()
+        var i = 0
+        while (i < contentLength) {
+            val cell = cells[i]
+            if (cell != null) {
+                if (cell.char != '\u0000') {
+                    // Actual character (not continuation marker)
+                    cellsToReflow.add(cell)
+                }
+                // Skip continuation marker if this is a wide char
+                if (i + 1 < maxCells && cells[i + 1]?.char == '\u0000') {
+                    i += 2
+                } else {
+                    i++
+                }
+            } else {
+                i++
+            }
+        }
+
+        // Now split cells into chunks of newWidth display width
+        var currentLine = Line(newWidth)
+        var currentPos = 0
+
+        for (cell in cellsToReflow) {
+            val charWidth = charDisplayWidth(cell.char)
+
+            // Check if adding this character would exceed line width
+            if (currentPos + charWidth > newWidth) {
+                // Start new line
+                result.add(currentLine)
+                currentLine = Line(newWidth)
+                currentPos = 0
+            }
+
+            // Write character to current line
+            currentLine.setCellAt(currentPos, cell.char, cell.attributes)
+            currentPos += charWidth
+        }
+
+        // Add the last line if it has content
+        if (currentPos > 0) {
+            result.add(currentLine)
+        }
+
+        // If no lines were created, return an empty line
+        if (result.isEmpty()) {
+            result.add(Line(newWidth))
+        }
+
+        return result
+    }
+
     override fun toString(): String {
         val builder = StringBuilder()
         for (cell in cells) {
