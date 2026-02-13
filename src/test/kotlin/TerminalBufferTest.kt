@@ -14,7 +14,10 @@ class TerminalBufferTest {
     /** Pre-size all screen lines so write/writeAt don't crash on empty cells. */
     private fun TerminalBuffer.preSizeLines() {
         for (row in 0 until height) {
-            getLine(row).ensureSize(width)
+            // Initialize all cells to blank spaces
+            for (col in 0 until width) {
+                getLine(row).setCellAt(col, ' ')
+            }
         }
     }
 
@@ -80,12 +83,10 @@ class TerminalBufferTest {
     @Test
     fun getLineEachRowIsDistinct() {
         val tb = buf(w = 5, h = 3)
-        tb.getLine(0).ensureSize(5)
         tb.getLine(0).setCellAt(0, 'A')
-        tb.getLine(1).ensureSize(5)
         tb.getLine(1).setCellAt(0, 'B')
-        assertEquals('A', tb.getLine(0).getCell(0).char)
-        assertEquals('B', tb.getLine(1).getCell(0).char)
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getLine(1).getCell(0)!!.char)
     }
 
     @Test
@@ -113,7 +114,7 @@ class TerminalBufferTest {
         val tb = buf()
         tb.preSizeLines()
         tb.write('A')
-        assertEquals('A', tb.getLine(0).getCell(0).char)
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
         assertEquals(1, tb.getCursor().cx)
         assertEquals(0, tb.getCursor().cy)
     }
@@ -124,8 +125,8 @@ class TerminalBufferTest {
         tb.preSizeLines()
         tb.write('H')
         tb.write('i')
-        assertEquals('H', tb.getLine(0).getCell(0).char)
-        assertEquals('i', tb.getLine(0).getCell(1).char)
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('i', tb.getLine(0).getCell(1)!!.char)
         assertEquals(2, tb.getCursor().cx)
     }
 
@@ -135,7 +136,7 @@ class TerminalBufferTest {
         tb.preSizeLines()
         val attrs = CellAttributes(fgColor = TerminalColor.Green, style = Style.Underline)
         tb.write('X', attrs)
-        val cell = tb.getLine(0).getCell(0)
+        val cell = tb.getLine(0).getCell(0)!!
         assertEquals('X', cell.char)
         assertEquals(TerminalColor.Green, cell.attributes.fgColor)
         assertEquals(Style.Underline, cell.attributes.style)
@@ -154,7 +155,7 @@ class TerminalBufferTest {
         tb.write('E')
         assertEquals(1, tb.getCursor().cx)
         assertEquals(1, tb.getCursor().cy)
-        assertEquals('E', tb.getLine(1).getCell(0).char)
+        assertEquals('E', tb.getLine(1).getCell(0)!!.char)
     }
 
     @Test
@@ -165,10 +166,10 @@ class TerminalBufferTest {
         tb.write('B')
         tb.write('C') // fills row 0, cx=3 (past edge)
         tb.write('D') // wraps to row 1 col 0
-        assertEquals('A', tb.getLine(0).getCell(0).char)
-        assertEquals('B', tb.getLine(0).getCell(1).char)
-        assertEquals('C', tb.getLine(0).getCell(2).char)
-        assertEquals('D', tb.getLine(1).getCell(0).char)
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('C', tb.getLine(0).getCell(2)!!.char)
+        assertEquals('D', tb.getLine(1).getCell(0)!!.char)
         assertEquals(1, tb.getCursor().cx)
         assertEquals(1, tb.getCursor().cy)
     }
@@ -181,16 +182,17 @@ class TerminalBufferTest {
         // ABC fills row 0, DE wraps to row 1
         assertEquals(1, tb.getCursor().cy)
         assertEquals(2, tb.getCursor().cx)
-        assertEquals('D', tb.getLine(1).getCell(0).char)
-        assertEquals('E', tb.getLine(1).getCell(1).char)
+        assertEquals('D', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('E', tb.getLine(1).getCell(1)!!.char)
     }
 
     @Test
     fun writeOnFreshBufferWithoutPreSizeThrows() {
         val tb = buf()
-        assertFailsWith<IndexOutOfBoundsException> {
-            tb.write('A')
-        }
+        // With sparse lines, write auto-ensures size - should work fine
+        tb.write('A')
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals(1, tb.getCursor().cx)
     }
 
     @Test
@@ -203,9 +205,9 @@ class TerminalBufferTest {
         // Move cursor back and overwrite
         tb.getCursor().moveTo(0, 1)
         tb.write('X')
-        assertEquals('A', tb.getLine(0).getCell(0).char)
-        assertEquals('X', tb.getLine(0).getCell(1).char)
-        assertEquals('C', tb.getLine(0).getCell(2).char)
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('C', tb.getLine(0).getCell(2)!!.char)
     }
 
     // =======================================================================
@@ -217,7 +219,7 @@ class TerminalBufferTest {
         val tb = buf(w = 10, h = 5)
         tb.preSizeLines()
         tb.writeAt(3, 2, 'Z')
-        assertEquals('Z', tb.getLine(2).getCell(3).char)
+        assertEquals('Z', tb.getLine(2).getCell(3)!!.char)
     }
 
     @Test
@@ -235,7 +237,7 @@ class TerminalBufferTest {
         tb.preSizeLines()
         val attrs = CellAttributes(fgColor = TerminalColor.Cyan, bgColor = TerminalColor.Red)
         tb.writeAt(0, 0, 'W', attrs)
-        val cell = tb.getLine(0).getCell(0)
+        val cell = tb.getLine(0).getCell(0)!!
         assertEquals('W', cell.char)
         assertEquals(TerminalColor.Cyan, cell.attributes.fgColor)
         assertEquals(TerminalColor.Red, cell.attributes.bgColor)
@@ -262,10 +264,9 @@ class TerminalBufferTest {
     @Test
     fun writeAtColBeyondLineSizeThrows() {
         val tb = buf(w = 5, h = 3)
-        // Line not pre-sized — col 0 is out of bounds
-        assertFailsWith<IndexOutOfBoundsException> {
-            tb.writeAt(0, 0, 'X')
-        }
+        // With sparse lines, writeAt auto-ensures size - should work fine
+        tb.writeAt(0, 0, 'X')
+        assertEquals('X', tb.getLine(0).getCell(0)!!.char)
     }
 
     @Test
@@ -274,7 +275,7 @@ class TerminalBufferTest {
         tb.preSizeLines()
         tb.writeAt(2, 1, 'A')
         tb.writeAt(2, 1, 'B')
-        assertEquals('B', tb.getLine(1).getCell(2).char)
+        assertEquals('B', tb.getLine(1).getCell(2)!!.char)
     }
 
     // =======================================================================
@@ -286,11 +287,11 @@ class TerminalBufferTest {
         val tb = TerminalBuffer(1, 1, 100, CellAttributes())
         tb.preSizeLines()
         tb.write('A')
-        assertEquals('A', tb.getLine(0).getCell(0).char)
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
         assertEquals(1, tb.getCursor().cx)
         // Writing again wraps: newLine scrolls A into scrollback, B on fresh row
         tb.write('B')
-        assertEquals('B', tb.getLine(0).getCell(0).char)
+        assertEquals('B', tb.getLine(0).getCell(0)!!.char)
         assertEquals(0, tb.getCursor().cy)
         assertEquals(1, tb.getScrollbackSize())
     }
@@ -301,7 +302,6 @@ class TerminalBufferTest {
 
     private fun markerLine(w: Int, marker: Char): Line {
         val line = Line(w)
-        line.ensureSize(w)
         line.setCellAt(0, marker)
         return line
     }
@@ -413,9 +413,9 @@ class TerminalBufferTest {
         tb.writeAt(0, 1, 'T')
         tb.writeAt(0, 2, 'U')
         // No scrollback, viewport at bottom
-        assertEquals('S', tb.getVisibleLine(0).getCell(0).char)
-        assertEquals('T', tb.getVisibleLine(1).getCell(0).char)
-        assertEquals('U', tb.getVisibleLine(2).getCell(0).char)
+        assertEquals('S', tb.getVisibleLine(0).getCell(0)!!.char)
+        assertEquals('T', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('U', tb.getVisibleLine(2).getCell(0)!!.char)
     }
 
     @Test
@@ -433,9 +433,9 @@ class TerminalBufferTest {
         // Scroll up by 2: screen lines shift up, scrollback appears at bottom
         // combinedIndex: row0=2 → screen[2]=Z, row1=3 → scrollback newest=C, row2=4 → scrollback=B
         tb.scrollUp(2)
-        assertEquals('Z', tb.getVisibleLine(0).getCell(0).char)
-        assertEquals('C', tb.getVisibleLine(1).getCell(0).char)
-        assertEquals('B', tb.getVisibleLine(2).getCell(0).char)
+        assertEquals('Z', tb.getVisibleLine(0).getCell(0)!!.char)
+        assertEquals('C', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('B', tb.getVisibleLine(2).getCell(0)!!.char)
     }
 
     @Test
@@ -452,9 +452,9 @@ class TerminalBufferTest {
         // row1: combined=6, scrollbackIdx=5-1-(6-3)=1 → B
         // row2: combined=7, scrollbackIdx=5-1-(7-3)=0 → A
         tb.scrollToTop()
-        assertEquals('C', tb.getVisibleLine(0).getCell(0).char)
-        assertEquals('B', tb.getVisibleLine(1).getCell(0).char)
-        assertEquals('A', tb.getVisibleLine(2).getCell(0).char)
+        assertEquals('C', tb.getVisibleLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('A', tb.getVisibleLine(2).getCell(0)!!.char)
     }
 
     @Test
@@ -472,10 +472,10 @@ class TerminalBufferTest {
         // Scroll up by 1 → offset=1
         // combinedIndex: row0=1→screen[1]=Q, row1=2→screen[2]=R, row2=3→screen[3]=S, row3=4→scrollback newest=2
         tb.scrollUp(1)
-        assertEquals('Q', tb.getVisibleLine(0).getCell(0).char)
-        assertEquals('R', tb.getVisibleLine(1).getCell(0).char)
-        assertEquals('S', tb.getVisibleLine(2).getCell(0).char)
-        assertEquals('2', tb.getVisibleLine(3).getCell(0).char)
+        assertEquals('Q', tb.getVisibleLine(0).getCell(0)!!.char)
+        assertEquals('R', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('S', tb.getVisibleLine(2).getCell(0)!!.char)
+        assertEquals('2', tb.getVisibleLine(3).getCell(0)!!.char)
     }
 
     @Test
@@ -513,8 +513,8 @@ class TerminalBufferTest {
         // Scroll to top — scrollback shown newest first, so C then B
         // offset=2, height=3: row0=2→screen[2], row1=3→scrollback newest=C, row2=4→scrollback oldest=B
         tb.scrollToTop()
-        assertEquals('C', tb.getVisibleLine(1).getCell(0).char)
-        assertEquals('B', tb.getVisibleLine(2).getCell(0).char)
+        assertEquals('C', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('B', tb.getVisibleLine(2).getCell(0)!!.char)
     }
 
     @Test
@@ -565,8 +565,8 @@ class TerminalBufferTest {
         tb.write('i')
         tb.newLine()
         // Row 0 still has "Hi"
-        assertEquals('H', tb.getLine(0).getCell(0).char)
-        assertEquals('i', tb.getLine(0).getCell(1).char)
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('i', tb.getLine(0).getCell(1)!!.char)
     }
 
     @Test
@@ -591,9 +591,9 @@ class TerminalBufferTest {
         // Top line ('A') should be in scrollback
         assertEquals(1, tb.getScrollbackSize())
         // Screen shifted up: row0=B, row1=C, row2=blank
-        assertEquals('B', tb.getLine(0).getCell(0).char)
-        assertEquals('C', tb.getLine(1).getCell(0).char)
-        assertEquals(' ', tb.getLine(2).getCell(0).char)
+        assertEquals('B', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('C', tb.getLine(1).getCell(0)!!.char)
+        assertEquals(null, tb.getLine(2).getCell(0))
         // Cursor on last row, col 0
         assertEquals(2, tb.getCursor().cy)
         assertEquals(0, tb.getCursor().cx)
@@ -607,7 +607,7 @@ class TerminalBufferTest {
         tb.newLine()
         assertEquals(1, tb.getScrollbackSize())
         // New blank line at row 0
-        assertEquals(' ', tb.getLine(0).getCell(0).char)
+        assertEquals(null, tb.getLine(0).getCell(0))
         assertEquals(0, tb.getCursor().cy)
         assertEquals(0, tb.getCursor().cx)
     }
@@ -620,7 +620,7 @@ class TerminalBufferTest {
         tb.newLine()
         // Write on the new blank bottom line — should not crash
         tb.write('Z')
-        assertEquals('Z', tb.getLine(2).getCell(0).char)
+        assertEquals('Z', tb.getLine(2).getCell(0)!!.char)
     }
 
     @Test
@@ -636,9 +636,9 @@ class TerminalBufferTest {
         tb.newLine() // B→scrollback, screen: C _ _
         tb.newLine() // C→scrollback, screen: _ _ _
         assertEquals(3, tb.getScrollbackSize())
-        assertEquals(' ', tb.getLine(0).getCell(0).char)
-        assertEquals(' ', tb.getLine(1).getCell(0).char)
-        assertEquals(' ', tb.getLine(2).getCell(0).char)
+        assertEquals(null, tb.getLine(0).getCell(0))
+        assertEquals(null, tb.getLine(1).getCell(0))
+        assertEquals(null, tb.getLine(2).getCell(0))
     }
 
     @Test
@@ -705,11 +705,11 @@ class TerminalBufferTest {
         tb.write('E')
         tb.write('F')
         // Verify all three rows
-        assertEquals('A', tb.getLine(0).getCell(0).char)
-        assertEquals('B', tb.getLine(0).getCell(1).char)
-        assertEquals('C', tb.getLine(1).getCell(0).char)
-        assertEquals('D', tb.getLine(1).getCell(1).char)
-        assertEquals('E', tb.getLine(2).getCell(0).char)
-        assertEquals('F', tb.getLine(2).getCell(1).char)
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('C', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('D', tb.getLine(1).getCell(1)!!.char)
+        assertEquals('E', tb.getLine(2).getCell(0)!!.char)
+        assertEquals('F', tb.getLine(2).getCell(1)!!.char)
     }
 }

@@ -51,9 +51,7 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
                 screenBuffer[i] = screenBuffer[i + 1]
             }
 
-            val blankLine = Line(width)
-            blankLine.ensureSize(width)
-            screenBuffer[height - 1] = blankLine
+            screenBuffer[height - 1] = Line(width)
 
             cursor.moveTo(height - 1, 0)
 
@@ -95,10 +93,6 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
     fun getCursor(): Cursor {
         return cursor
     }
-
-
-
-
 
     // Scrolling
 
@@ -157,9 +151,5 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
     fun scrollToBottom() {
         viewportOffset = 0
     }
-
-
-
-
 
 }
