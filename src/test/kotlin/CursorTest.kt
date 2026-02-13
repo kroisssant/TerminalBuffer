@@ -101,4 +101,62 @@ class CursorTest {
         assertEquals(2, c.cx)
         assertEquals(1, c.cy)
     }
+
+    // --- clampCursor ---
+
+    @Test
+    fun clampCursorClampsNegativeCx() {
+        val c = Cursor(0, -5)
+        c.clampCursor(0, 0, 79, 23)
+        assertEquals(0, c.cx)
+        assertEquals(0, c.cy)
+    }
+
+    @Test
+    fun clampCursorClampsNegativeCy() {
+        val c = Cursor(-3, 0)
+        c.clampCursor(0, 0, 79, 23)
+        assertEquals(0, c.cx)
+        assertEquals(0, c.cy)
+    }
+
+    @Test
+    fun clampCursorClampsCxAboveMax() {
+        val c = Cursor(0, 100)
+        c.clampCursor(0, 0, 79, 23)
+        assertEquals(79, c.cx)
+        assertEquals(0, c.cy)
+    }
+
+    @Test
+    fun clampCursorClampsCyAboveMax() {
+        val c = Cursor(50, 0)
+        c.clampCursor(0, 0, 79, 23)
+        assertEquals(0, c.cx)
+        assertEquals(23, c.cy)
+    }
+
+    @Test
+    fun clampCursorNoOpWhenInBounds() {
+        val c = Cursor(5, 10)
+        c.clampCursor(0, 0, 79, 23)
+        assertEquals(10, c.cx)
+        assertEquals(5, c.cy)
+    }
+
+    @Test
+    fun clampCursorBothAxesOutOfBounds() {
+        val c = Cursor(-2, -3)
+        c.clampCursor(0, 0, 79, 23)
+        assertEquals(0, c.cx)
+        assertEquals(0, c.cy)
+    }
+
+    @Test
+    fun clampCursorAtExactBoundary() {
+        val c = Cursor(23, 79)
+        c.clampCursor(0, 0, 79, 23)
+        assertEquals(79, c.cx)
+        assertEquals(23, c.cy)
+    }
 }
