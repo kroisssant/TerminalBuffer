@@ -9,7 +9,7 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
 
     private val cursor: Cursor = Cursor(0, 0)
 
-    private val privateAttributes: CellAttributes = CellAttributes()
+    private var defaultAttributes: CellAttributes = cellAttributes
 
     private var viewportOffset: Int = 0
 
@@ -17,7 +17,7 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
     /**
      * Write [char] with [attributes] at the cursor position.
      */
-    fun write(char: Char, attributes: CellAttributes = privateAttributes) {
+    fun write(char: Char, attributes: CellAttributes = defaultAttributes) {
         if (cursor.cx >= width) {
             newLine()
         }
@@ -28,7 +28,7 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
     /**
      * Write cell at specific position [cx] [cy].
      */
-    fun writeAt(cx: Int, cy: Int, char: Char,  attributes: CellAttributes = privateAttributes) {
+    fun writeAt(cx: Int, cy: Int, char: Char,  attributes: CellAttributes = defaultAttributes) {
         screenBuffer[cy].setCellAt(cx, char, attributes)
     }
 
@@ -151,5 +151,32 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
     fun scrollToBottom() {
         viewportOffset = 0
     }
+
+    /**
+     * Clear the scrollback buffer (remove all history).
+     */
+    fun clearScrollback() {
+        scrollbackBuffer.clear()
+        viewportOffset = 0
+    }
+
+    /**
+     * Get current default cell attributes
+     */
+    fun getAttributes(): CellAttributes {
+        return this.defaultAttributes
+    }
+
+
+    /**
+     * Set cell default cell attributes. This will change all the cells that depend on the default
+     */
+    fun setAttributes(cellAttributes: CellAttributes) {
+        this.defaultAttributes = cellAttributes
+    }
+
+
+
+
 
 }
