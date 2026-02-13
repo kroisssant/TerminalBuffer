@@ -229,4 +229,15 @@ class Line(initialCapacity: Int) {
 
         return overflow
     }
+
+    override fun toString(): String {
+        var string = ""
+        for(char in this.cells) {
+            if(char == null) {
+                return string
+            }
+            string += char.char
+        }
+        return ""
+    }
 }

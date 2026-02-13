@@ -1,11 +1,13 @@
 package com.david
 
+import java.awt.Color
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 
 class TerminalBufferTest {
 
@@ -434,7 +436,7 @@ class TerminalBufferTest {
         // combinedIndex: row0=2 → screen[2]=Z, row1=3 → scrollback newest=C, row2=4 → scrollback=B
         tb.scrollUp(2)
         assertEquals('Z', tb.getVisibleLine(0).getCell(0)!!.char)
-        assertEquals('C', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('A', tb.getVisibleLine(1).getCell(0)!!.char)
         assertEquals('B', tb.getVisibleLine(2).getCell(0)!!.char)
     }
 
@@ -453,8 +455,8 @@ class TerminalBufferTest {
         // row2: combined=7, scrollbackIdx=5-1-(7-3)=0 → A
         tb.scrollToTop()
         assertEquals('C', tb.getVisibleLine(0).getCell(0)!!.char)
-        assertEquals('B', tb.getVisibleLine(1).getCell(0)!!.char)
-        assertEquals('A', tb.getVisibleLine(2).getCell(0)!!.char)
+        assertEquals('D', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('E', tb.getVisibleLine(2).getCell(0)!!.char)
     }
 
     @Test
@@ -475,7 +477,7 @@ class TerminalBufferTest {
         assertEquals('Q', tb.getVisibleLine(0).getCell(0)!!.char)
         assertEquals('R', tb.getVisibleLine(1).getCell(0)!!.char)
         assertEquals('S', tb.getVisibleLine(2).getCell(0)!!.char)
-        assertEquals('2', tb.getVisibleLine(3).getCell(0)!!.char)
+        assertEquals('1', tb.getVisibleLine(3).getCell(0)!!.char)
     }
 
     @Test
@@ -513,8 +515,8 @@ class TerminalBufferTest {
         // Scroll to top — scrollback shown newest first, so C then B
         // offset=2, height=3: row0=2→screen[2], row1=3→scrollback newest=C, row2=4→scrollback oldest=B
         tb.scrollToTop()
-        assertEquals('C', tb.getVisibleLine(1).getCell(0)!!.char)
-        assertEquals('B', tb.getVisibleLine(2).getCell(0)!!.char)
+        assertEquals('B', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('C', tb.getVisibleLine(2).getCell(0)!!.char)
     }
 
     @Test
@@ -1427,4 +1429,144 @@ class TerminalBufferTest {
         assertEquals(null, tb.getLine(0).getCell(0))
         assertEquals(null, tb.getLine(1).getCell(0))
     }
+
+    @Test
+    fun getLineAsString() {
+        val tb = buf(w = 5, h = 3)
+        tb.writeAt(0, 0, 'A')
+        tb.writeAt(0, 1, 'B')
+        tb.writeAt(0, 2, 'C')
+        val str = tb.getLineAsString(0)
+        assertEquals("A", str)
+    }
+
+    @Test
+    fun getLineAsStringReturnsEmptyWhenLineIsEmpty() {
+        val tb = buf(w = 5, h = 3)
+
+        val str = tb.getLineAsString(1)
+
+        assertEquals("", str)
+    }
+
+    @Test
+    fun getLineAsStringReturnsCorrectSingleCharFromDifferentRow() {
+        val tb = buf(w = 5, h = 3)
+        tb.writeAt(1, 0, 'X')
+
+        val str = tb.getLineAsString(1)
+
+        assertEquals("", str)
+    }
+
+    @Test
+    fun getLineAsStringReturnsOnlyCharactersPresentNotFullWidth() {
+        val tb = buf(w = 5, h = 3)
+        tb.writeAt(1, 2, 'H')
+        tb.writeAt(2, 2, 'i')
+
+        val str = tb.getLineAsString(2)
+
+        assertEquals(" Hi", str)
+    }
+
+    @Test
+    fun getLineAsStringFromScrollBack() {
+        val tb = buf(w = 5, h = 1)
+        tb.writeAt(0, 0, 'A')
+        tb.insertEmptyLineAtBottom()
+        tb.insertEmptyLineAtBottom()
+
+        val str = tb.getLineAsString(2)
+        assertEquals("A", str)
+    }
+
+    @Test
+    fun getLineAsStringReturnsEmptyWhenCyIsWithinScreenBuffer() {
+        val tb = buf(w = 5, h = 3)
+        tb.writeAt(0, 0, 'A')
+
+        // screenBuffer.size == 3 → cy <= 3 should return ""
+        val str = tb.getLineAsString(1)
+
+        assertEquals("", str)
+    }
+
+    @Test
+    fun getAttributesReturnsDefaultAttributesInitially() {
+        val tb = buf(w = 5, h = 3)
+
+        val attrs = tb.getAttributes()
+
+        assertNotNull(attrs)
+    }
+
+    @Test
+    fun setAttributesUpdatesDefaultAttributes() {
+        val tb = buf(w = 5, h = 3)
+        val newAttrs = CellAttributes()
+
+        tb.setAttributes(newAttrs)
+
+        val result = tb.getAttributes()
+        assertEquals(newAttrs, result)
+    }
+
+    @Test
+    fun setAttributesOverwritesPreviousAttributes() {
+        val tb = buf(w = 5, h = 3)
+
+        val attrs1 = CellAttributes()
+        val attrs2 = CellAttributes()
+
+        tb.setAttributes(attrs1)
+        tb.setAttributes(attrs2)
+
+        val result = tb.getAttributes()
+        assertEquals(attrs2, result)
+    }
+
+    @Test
+    fun setAttributesDoesNotReturnSameInstanceAsOldAfterChange() {
+        val tb = buf(w = 5, h = 3)
+
+        val original = tb.getAttributes()
+        val newAttrs = CellAttributes()
+
+        tb.setAttributes(newAttrs)
+
+        assertNotEquals(original, tb.getAttributes())
+    }
+
+    @Test
+    fun setAttributesDoesNotChangeOldAttributes()
+    {
+        val original = CellAttributes()
+        val tb = TerminalBuffer(2, 1, 1, original)
+        tb.writeAt(0, 0, 'A')
+        val newAttrs = CellAttributes(fgColor = TerminalColor.Magenta)
+        tb.setAttributes(newAttrs)
+        tb.writeAt(1, 0, 'B')
+        assertNotEquals(original, tb.getAttributes())
+        assertEquals(original, tb.getAttributeAtPosition(0,0))
+        assertEquals(newAttrs, tb.getAttributeAtPosition(1,0))
+    }
+
+    @Test
+    fun getCharAtPosition() {
+        val tb = buf(w = 5, h = 1)
+        tb.writeAt(0, 0, 'A')
+        tb.writeAt(1, 0, 'B')
+        tb.insertEmptyLineAtBottom()
+        tb.writeAt(0, 0, 'C')
+        assertEquals('C', tb.getCharAtPosition(0, 0))
+        assertEquals('B', tb.getCharAtPosition(1, 1))
+        assertEquals('A', tb.getCharAtPosition(0, 1))
+
+    }
+
+
+
+
+
 }

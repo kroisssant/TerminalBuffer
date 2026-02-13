@@ -195,7 +195,7 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      * Increments viewport offset if currently scrolled up.
      */
     fun insertEmptyLineAtBottom() {
-        addScrollbackLine(screenBuffer[0])
+        addScrollbackLine(screenBuffer.last())
 
         for (i in 0 until height - 1) {
             screenBuffer[i] = screenBuffer[i + 1]
@@ -284,6 +284,16 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
         return cursor
     }
 
+    /**
+     * Move cursor to position [cx], [cy].
+     *
+     * @param cx position on the x axis of the screen
+     * @param cy position on the y axis of the screen
+     */
+    fun moveCursorTo(cy: Int, cx: Int) {
+        cursor.moveTo(cy, cx)
+    }
+
     // Scrollback and viewport operations
 
     /**
@@ -301,9 +311,9 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      */
     fun addScrollbackLine(line: Line) {
         if (scrollbackBuffer.size >= maxScrollbackSize) {
-            scrollbackBuffer.removeFirst()
+            scrollbackBuffer.removeLast()
         }
-        scrollbackBuffer.addLast(line)
+        scrollbackBuffer.addFirst(line)
     }
 
     /**
@@ -390,8 +400,92 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
         this.defaultAttributes = cellAttributes
     }
 
-    // Write
+    /**
+     * Gets the line at [cy] as string.
+     * If [cy] is over the screen limit, you will get the [cy] - [screenBuffer]'s size element of the scrollback.
+     * @param cy the line.
+     */
+    fun getLineAsString(cy: Int): String {
+        return if(cy > screenBuffer.size - 1) {
+            scrollbackBuffer[cy-screenBuffer.size].toString()
+        } else {
+            screenBuffer[cy].toString()
+        }
+    }
+
+    /**
+     * Get screen as string.
+     */
+    fun getScreenAsString(): String {
+        var string: String = ""
+        for(line in screenBuffer) {
+            string += line.toString() + "\n"
+        }
+        return string
+    }
 
 
+    /**
+     * Get scrollback as string.
+     */
+    fun getScrollbackAsString(): String {
+        var string: String = ""
+        for(line in scrollbackBuffer) {
+            string += line.toString() + "\n"
+        }
+        return string
+    }
+
+    /**
+     * Get both screen and scrollback as screen.
+     */
+    fun getScrollbackAndScreenAsString(): String {
+        return getScrollbackAsString() + "\n" + getScreenAsString()
+    }
+
+    // Access
+    /**
+     * Get the cell at position [cx] [cy].
+     * If [cy] is over the screen limit, you will get the [cy] - [screenBuffer]'s size element of the scrollback.
+     *
+     * @param cx Column position to start insertion
+     * @param cy Row position to start insertion
+     */
+    private fun getCellAtPosition(cx: Int, cy: Int): Cell? {
+        require(cx in 0 until width) { "cx $cx out of bounds [0, $width)" }
+        require(cy in 0 until (height + scrollbackBuffer.size)) {
+            "cy $cy out of bounds [0, ${height + scrollbackBuffer.size})"
+        }
+
+        return if (cy < height) {
+            // Screen area
+            screenBuffer[cy].getCell(cx)
+        } else {
+            // Scrollback area
+            val scrollIndex = cy - height
+            scrollbackBuffer[scrollIndex].getCell(cx)
+        }
+    }
+    /**
+     * Get the cellAttributes instance at position [cx] [cy].
+     * If [cy] is over the screen limit, you will get the [cy] - [screenBuffer]'s size element of the scrollback.
+     *
+     * @param cx Column position to start insertion
+     * @param cy Row position to start insertion
+     */
+    fun getAttributeAtPosition(cx: Int, cy: Int): CellAttributes {
+        return getCellAtPosition(cx, cy)!!.attributes
+    }
+
+    /**
+     * Get the cell char at position [cx] [cy].
+     * If [cy] is over the screen limit, you will get the [cy] - [screenBuffer]'s size element of the scrollback.
+     *
+     * @param cx Column position to start insertion
+     * @param cy Row position to start insertion
+     */
+    fun getCharAtPosition(cx: Int, cy: Int): Char {
+        return getCellAtPosition(cx, cy)!!.char
+    }
 
 }
