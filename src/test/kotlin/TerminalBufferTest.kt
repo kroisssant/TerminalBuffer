@@ -249,7 +249,7 @@ class TerminalBufferTest {
     fun writeAtNegativeRowThrows() {
         val tb = buf(w = 5, h = 3)
         tb.preSizeLines()
-        assertFailsWith<ArrayIndexOutOfBoundsException> {
+        assertFailsWith<IllegalArgumentException> {
             tb.writeAt(0, -1, 'X')
         }
     }
@@ -258,7 +258,7 @@ class TerminalBufferTest {
     fun writeAtRowBeyondHeightThrows() {
         val tb = buf(w = 5, h = 3)
         tb.preSizeLines()
-        assertFailsWith<ArrayIndexOutOfBoundsException> {
+        assertFailsWith<IllegalArgumentException> {
             tb.writeAt(0, 3, 'X')
         }
     }

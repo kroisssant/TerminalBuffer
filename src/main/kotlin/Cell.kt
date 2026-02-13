@@ -2,20 +2,32 @@ package com.david
 
 
 /**
- * Cell class to hold on cell for the terminal gird.
+ * Cell class to hold one cell for the terminal grid.
  */
 class Cell(
     var char: Char,
     var attributes: CellAttributes = CellAttributes(),
-)
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Cell) return false
+        return char == other.char && attributes == other.attributes
+    }
+
+    override fun hashCode(): Int {
+        var result = char.hashCode()
+        result = 31 * result + attributes.hashCode()
+        return result
+    }
+}
 
 /**
  * Basic cell attributes.
  */
 data class CellAttributes(
-    var fgColor: TerminalColor = TerminalColor.White,
-    var bgColor: TerminalColor = TerminalColor.Black,
-    var style: Style = Style.Normal
+    val fgColor: TerminalColor = TerminalColor.White,
+    val bgColor: TerminalColor = TerminalColor.Black,
+    val style: Style = Style.Normal
 )
 
 /**

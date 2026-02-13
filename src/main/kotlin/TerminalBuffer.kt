@@ -48,12 +48,16 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      * Write a single character at the specified position.
      * Does not move the cursor.
      *
+     * Note: Parameters use (column, row) convention to keep the char parameter last.
+     *
      * @param cx Column position (0-based)
      * @param cy Row position (0-based)
      * @param char Character to write
      * @param attributes Cell attributes (defaults to current default attributes)
      */
     fun writeAt(cx: Int, cy: Int, char: Char,  attributes: CellAttributes = defaultAttributes) {
+        require(cx in 0 until width) { "cx $cx out of bounds [0, $width)" }
+        require(cy in 0 until height) { "cy $cy out of bounds [0, $height)" }
         screenBuffer[cy].setCellAt(cx, char, attributes)
     }
 
@@ -79,6 +83,7 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      * @param cellAttributes Cell attributes to apply (defaults to current default attributes)
      */
     fun fillLine(char: Char, lineCy: Int = cursor.cy, cellAttributes: CellAttributes = defaultAttributes) {
+        require(lineCy in 0 until height) { "lineCy $lineCy out of bounds [0, $height)" }
         screenBuffer[lineCy].fill(char, cellAttributes)
     }
 
@@ -208,7 +213,7 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      * Increments viewport offset if currently scrolled up.
      */
     fun insertEmptyLineAtBottom() {
-        addScrollbackLine(screenBuffer.last())
+        addScrollbackLine(screenBuffer[0])
 
         for (i in 0 until height - 1) {
             screenBuffer[i] = screenBuffer[i + 1]
@@ -298,10 +303,12 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
     }
 
     /**
-     * Move cursor to position [cx], [cy].
+     * Move cursor to position [cy], [cx].
      *
-     * @param cx position on the x axis of the screen
-     * @param cy position on the y axis of the screen
+     * Note: Parameters use (row, column) convention matching array indexing.
+     *
+     * @param cy Row position (0-based)
+     * @param cx Column position (0-based)
      */
     fun moveCursorTo(cy: Int, cx: Int) {
         cursor.moveTo(cy, cx)
@@ -430,23 +437,14 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      * Get screen as string.
      */
     fun getScreenAsString(): String {
-        var string: String = ""
-        for(line in screenBuffer) {
-            string += line.toString() + "\n"
-        }
-        return string
+        return screenBuffer.joinToString("\n") { it.toString() } + "\n"
     }
-
 
     /**
      * Get scrollback as string.
      */
     fun getScrollbackAsString(): String {
-        var string: String = ""
-        for(line in scrollbackBuffer) {
-            string += line.toString() + "\n"
-        }
-        return string
+        return scrollbackBuffer.joinToString("\n") { it.toString() } + "\n"
     }
 
     /**
@@ -487,7 +485,9 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      * @param cy Row position to start insertion
      */
     fun getAttributeAtPosition(cx: Int, cy: Int): CellAttributes {
-        return getCellAtPosition(cx, cy)!!.attributes
+        val cell = getCellAtPosition(cx, cy)
+        requireNotNull(cell) { "No cell at position ($cx, $cy) - cell is uninitialized" }
+        return cell.attributes
     }
 
     /**
@@ -498,7 +498,9 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      * @param cy Row position to start insertion
      */
     fun getCharAtPosition(cx: Int, cy: Int): Char {
-        return getCellAtPosition(cx, cy)!!.char
+        val cell = getCellAtPosition(cx, cy)
+        requireNotNull(cell) { "No cell at position ($cx, $cy) - cell is uninitialized" }
+        return cell.char
     }
 
 }

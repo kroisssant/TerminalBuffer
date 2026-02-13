@@ -16,6 +16,10 @@ class Line(initialCapacity: Int) {
 
     private var cells: Array<Cell?> = arrayOfNulls(initialCapacity)
 
+    companion object {
+        private val DEFAULT_BLANK_ATTRIBUTES = CellAttributes()
+    }
+
     /**
      * Get cell at [index]. Returns null for empty cells.
      * Throws if index is out of bounds.
@@ -37,7 +41,7 @@ class Line(initialCapacity: Int) {
         // This matches real terminal emulator behavior (xterm.js, VT100, etc.)
         for (i in 0 until index) {
             if (cells[i] == null) {
-                cells[i] = Cell(' ', CellAttributes())
+                cells[i] = Cell(' ', DEFAULT_BLANK_ATTRIBUTES)
             }
         }
 
@@ -123,7 +127,7 @@ class Line(initialCapacity: Int) {
         // Fill all gaps from 0 to the last non-null cell
         for (i in 0 until contentLength) {
             if (cells[i] == null) {
-                cells[i] = Cell(' ', CellAttributes())
+                cells[i] = Cell(' ', DEFAULT_BLANK_ATTRIBUTES)
             }
         }
     }
@@ -249,13 +253,13 @@ class Line(initialCapacity: Int) {
     }
 
     override fun toString(): String {
-        var string = ""
-        for(char in this.cells) {
-            if(char == null) {
-                return string
+        val builder = StringBuilder()
+        for (cell in cells) {
+            if (cell == null) {
+                return builder.toString()
             }
-            string += char.char
+            builder.append(cell.char)
         }
-        return ""
+        return builder.toString()
     }
 }

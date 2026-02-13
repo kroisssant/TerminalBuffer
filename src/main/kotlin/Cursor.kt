@@ -45,8 +45,20 @@ class Cursor(var cy: Int, var cx: Int) {
         this.cx = 0
     }
 
-    fun clampCursor(min_cx: Int, min_cy: Int, max_cx: Int, max_cy: Int) {
-        this.cx = this.cx.coerceIn(min_cx, max_cx)
-        this.cy = this.cy.coerceIn(min_cy, max_cy)
+    fun clampCursor(minCx: Int, minCy: Int, maxCx: Int, maxCy: Int) {
+        this.cx = this.cx.coerceIn(minCx, maxCx)
+        this.cy = this.cy.coerceIn(minCy, maxCy)
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Cursor) return false
+        return cy == other.cy && cx == other.cx
+    }
+
+    override fun hashCode(): Int {
+        var result = cy
+        result = 31 * result + cx
+        return result
     }
 }
