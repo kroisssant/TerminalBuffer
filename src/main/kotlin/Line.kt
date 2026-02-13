@@ -133,6 +133,24 @@ class Line(initialCapacity: Int) {
     }
 
     /**
+     * Delete character at [index] and shift remaining characters left.
+     * The last cell becomes null. This matches standard terminal delete behavior (DCH).
+     *
+     * @param index Position to delete at (0-based)
+     */
+    fun deleteCharAt(index: Int) {
+        require(index in 0 until maxCells) { "index $index out of bounds [0, $maxCells)" }
+
+        // Shift all cells after index to the left by one
+        for (i in index until maxCells - 1) {
+            cells[i] = cells[i + 1]
+        }
+
+        // Clear the last cell
+        cells[maxCells - 1] = null
+    }
+
+    /**
      * Write text at [startIndex] with [attributes], returning cells that overflow beyond maxCells.
      *
      * Behavior:

@@ -23,6 +23,10 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
 
     private var viewportOffset: Int = 0
 
+    init {
+        cursor.clampCursor(0, 0, width - 1, height - 1)
+    }
+
     // Write operations
 
     /**
@@ -76,6 +80,15 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      */
     fun fillLine(char: Char, lineCy: Int = cursor.cy, cellAttributes: CellAttributes = defaultAttributes) {
         screenBuffer[lineCy].fill(char, cellAttributes)
+    }
+
+    /**
+     * Delete the character at the cursor position and shift remaining characters left.
+     * The last cell on the line becomes empty. Does not move the cursor.
+     * This matches standard terminal delete character behavior (DCH).
+     */
+    fun deleteCharacterAtCursor() {
+        screenBuffer[cursor.cy].deleteCharAt(cursor.cx)
     }
 
     /**

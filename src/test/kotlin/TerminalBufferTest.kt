@@ -1531,7 +1531,7 @@ class TerminalBufferTest {
         val tb = buf(w = 5, h = 3)
 
         val original = tb.getAttributes()
-        val newAttrs = CellAttributes()
+        val newAttrs = CellAttributes(fgColor = TerminalColor.Magenta)
 
         tb.setAttributes(newAttrs)
 
@@ -1565,8 +1565,36 @@ class TerminalBufferTest {
 
     }
 
+    @Test
+    fun deleteCharacterAtCursorShiftsRemainingLeft() {
+        val tb = buf(w = 10, h = 3)
+        tb.writeString("Hello")
+        tb.moveCursorTo(0, 1)  // Position at 'e'
 
+        tb.deleteCharacterAtCursor()
 
+        assertEquals("Hllo", tb.getLineAsString(0).trimEnd())
+    }
 
+    @Test
+    fun deleteCharacterAtCursorDoesNotMoveCursor() {
+        val tb = buf(w = 10, h = 3)
+        tb.writeString("Hello")
+        tb.moveCursorTo(0, 2)  // Position at first 'l'
 
+        tb.deleteCharacterAtCursor()
+
+        assertEquals(0, tb.getCursor().cy)
+        assertEquals(2, tb.getCursor().cx)
+    }
+
+    @Test
+    fun deleteCharacterAtCursorOnEmptyLineDoesNothing() {
+        val tb = buf(w = 10, h = 3)
+        tb.moveCursorTo(0, 0)
+
+        tb.deleteCharacterAtCursor()  // Should not throw
+
+        assertEquals("", tb.getLineAsString(0).trimEnd())
+    }
 }
