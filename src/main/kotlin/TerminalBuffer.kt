@@ -13,8 +13,8 @@ package com.david
  * @param maxScrollbackSize Maximum number of lines to keep in scrollback history
  * @param cellAttributes Default cell attributes for new content
  */
-class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int, val cellAttributes: CellAttributes) {
-    private val screenBuffer: Array<Line> = Array(height) { Line(width) }
+class TerminalBuffer(var width: Int, var height: Int, val maxScrollbackSize: Int, val cellAttributes: CellAttributes) {
+    private var screenBuffer: Array<Line> = Array(height) { Line(width) }
     private val scrollbackBuffer: ArrayDeque<Line> = ArrayDeque()
 
     private val cursor: Cursor = Cursor(0, 0)
@@ -102,7 +102,7 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      * Does not affect scrollback.
      */
     fun clearScreen() {
-        screenBuffer.fill(Line(width))
+        screenBuffer = Array(height) { Line(width) }
         cursor.reset()
     }
 
@@ -355,6 +355,8 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
         cursor.moveDown(offset)
         cursor.clampCursor(0, 0, width - 1, height - 1)
     }
+
+
 
     // Scrollback and viewport operations
 

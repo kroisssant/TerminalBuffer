@@ -1,5 +1,6 @@
 package com.david
 
+import org.junit.jupiter.api.assertThrows
 import java.awt.Color
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -1199,6 +1200,34 @@ class TerminalBufferTest {
         assertEquals(0, tb.getCursor().cx)
     }
 
+    @Test
+    fun clearScreenCreatesIndependentLines() {
+        val tb = buf(w = 5, h = 3)
+        // Write some initial content
+        for (row in 0 until 3) {
+            for (col in 0 until 5) {
+                tb.writeAt(col, row, 'X')
+            }
+        }
+
+        tb.clearScreen()
+
+        // Write to line 0 only
+        tb.writeAt(0, 0, 'A')
+        tb.writeAt(1, 0, 'B')
+
+        // Verify line 0 has the new content
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getLine(0).getCell(1)!!.char)
+
+        // Verify lines 1 and 2 remain empty (not affected by writes to line 0)
+        // This ensures each line is an independent object, not shared references
+        assertEquals(null, tb.getLine(1).getCell(0))
+        assertEquals(null, tb.getLine(1).getCell(1))
+        assertEquals(null, tb.getLine(2).getCell(0))
+        assertEquals(null, tb.getLine(2).getCell(1))
+    }
+
     // =======================================================================
     // clearAll
     // =======================================================================
@@ -1597,4 +1626,6 @@ class TerminalBufferTest {
 
         assertEquals("", tb.getLineAsString(0).trimEnd())
     }
+
+
 }
