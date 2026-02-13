@@ -98,10 +98,12 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
 
     /**
      * Clear the entire screen by replacing all lines with blank lines.
-     * Does not affect scrollback or move the cursor.
+     * Resets cursor to origin (0, 0).
+     * Does not affect scrollback.
      */
     fun clearScreen() {
         screenBuffer.fill(Line(width))
+        cursor.reset()
     }
 
     /**
@@ -312,6 +314,46 @@ class TerminalBuffer(val width: Int, val height: Int, val maxScrollbackSize: Int
      */
     fun moveCursorTo(cy: Int, cx: Int) {
         cursor.moveTo(cy, cx)
+    }
+
+    /**
+     * Move cursor left by [offset] positions and clamp to valid bounds.
+     *
+     * @param offset Number of positions to move left (defaults to 1)
+     */
+    fun moveCursorLeft(offset: Int = 1) {
+        cursor.moveLeft(offset)
+        cursor.clampCursor(0, 0, width - 1, height - 1)
+    }
+
+    /**
+     * Move cursor right by [offset] positions and clamp to valid bounds.
+     *
+     * @param offset Number of positions to move right (defaults to 1)
+     */
+    fun moveCursorRight(offset: Int = 1) {
+        cursor.moveRight(offset)
+        cursor.clampCursor(0, 0, width - 1, height - 1)
+    }
+
+    /**
+     * Move cursor up by [offset] positions and clamp to valid bounds.
+     *
+     * @param offset Number of positions to move up (defaults to 1)
+     */
+    fun moveCursorUp(offset: Int = 1) {
+        cursor.moveUp(offset)
+        cursor.clampCursor(0, 0, width - 1, height - 1)
+    }
+
+    /**
+     * Move cursor down by [offset] positions and clamp to valid bounds.
+     *
+     * @param offset Number of positions to move down (defaults to 1)
+     */
+    fun moveCursorDown(offset: Int = 1) {
+        cursor.moveDown(offset)
+        cursor.clampCursor(0, 0, width - 1, height - 1)
     }
 
     // Scrollback and viewport operations

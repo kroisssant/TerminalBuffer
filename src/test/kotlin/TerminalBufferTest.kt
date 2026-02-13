@@ -1189,14 +1189,14 @@ class TerminalBufferTest {
     }
 
     @Test
-    fun clearScreenDoesNotMoveCursor() {
+    fun clearScreenResetsCursor() {
         val tb = buf(w = 5, h = 3)
         tb.getCursor().moveTo(2, 3)
 
         tb.clearScreen()
 
-        assertEquals(2, tb.getCursor().cy)
-        assertEquals(3, tb.getCursor().cx)
+        assertEquals(0, tb.getCursor().cy)
+        assertEquals(0, tb.getCursor().cx)
     }
 
     // =======================================================================
@@ -1240,14 +1240,14 @@ class TerminalBufferTest {
     }
 
     @Test
-    fun clearAllDoesNotMoveCursor() {
+    fun clearAllResetsCursor() {
         val tb = buf(w = 5, h = 3)
         tb.getCursor().moveTo(1, 2)
 
         tb.clearAll()
 
-        assertEquals(1, tb.getCursor().cy)
-        assertEquals(2, tb.getCursor().cx)
+        assertEquals(0, tb.getCursor().cy)
+        assertEquals(0, tb.getCursor().cx)
     }
 
     // =======================================================================
