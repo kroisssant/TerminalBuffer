@@ -32,16 +32,21 @@ class TerminalBuffer(var width: Int, var height: Int, val maxScrollbackSize: Int
     /**
      * Write a single character at the cursor position and advance the cursor.
      * If the cursor is at or past the right edge, a new line is created first.
+     * Wide characters (CJK, emoji) that don't fit on the current line wrap to the next line.
      *
      * @param char Character to write
      * @param attributes Cell attributes (defaults to current default attributes)
      */
     fun write(char: Char, attributes: CellAttributes = defaultAttributes) {
-        if (cursor.cx >= width) {
+        val charWidth = charDisplayWidth(char)
+
+        // Check if wide character fits on current line
+        if (cursor.cx + charWidth > width) {
             newLine()
         }
+
         screenBuffer[cursor.cy].setCellAt(cursor.cx, char, attributes)
-        cursor.moveRight()
+        cursor.moveRight(charWidth)  // Advance by display width
     }
 
     /**
@@ -145,6 +150,7 @@ class TerminalBuffer(var width: Int, var height: Int, val maxScrollbackSize: Int
     /**
      * Internal recursive function to insert cells with wrapping.
      * Handles overflow by recursively inserting into subsequent lines.
+     * Properly accounts for wide characters when calculating final cursor position.
      *
      * @param cells List of cells to insert
      * @param cx Column position to start insertion
@@ -178,7 +184,12 @@ class TerminalBuffer(var width: Int, var height: Int, val maxScrollbackSize: Int
         }
 
         // No overflow, cursor ends at the end of written cells
-        val finalCx = cx + cells.size
+        // Calculate display width (account for wide characters)
+        var displayWidth = 0
+        for (cell in cells) {
+            displayWidth += charDisplayWidth(cell.char)
+        }
+        val finalCx = cx + displayWidth
         return Pair(cy, finalCx)
     }
 
@@ -275,20 +286,32 @@ class TerminalBuffer(var width: Int, var height: Int, val maxScrollbackSize: Int
     /**
      * Get the line visible at viewport row [row] (0 = top of viewport).
      *
-     * The viewport is: screen lines first (shifted by offset), then scrollback
-     * lines (newest first). When viewportOffset is 0 the viewport shows the
-     * screen lines. As offset increases, screen lines scroll off the top and
-     * scrollback lines appear at the bottom.
+     * When scrolling up (viewportOffset > 0), older scrollback lines appear at the top,
+     * and screen lines shift down. This matches standard terminal behavior where
+     * scrolling up reveals older history at the top of the screen.
      */
     fun getVisibleLine(row: Int): Line {
         require(row in 0 until height) { "row $row out of viewport bounds [0, $height)" }
-        val combinedIndex = viewportOffset + row
-        return if (combinedIndex < height) {
-            screenBuffer[combinedIndex]
+
+        return if (row < viewportOffset) {
+            // Show scrollback at top (older content)
+            // scrollback[0] = newest, so we want scrollback[viewportOffset - 1 - row]
+            val scrollbackIndex = viewportOffset - 1 - row
+            if (scrollbackIndex >= scrollbackBuffer.size) {
+                // Beyond scrollback, return empty line
+                Line(width)
+            } else {
+                scrollbackBuffer[scrollbackIndex]
+            }
         } else {
-            // Scrollback, newest first
-            val scrollbackIndex = scrollbackBuffer.size - 1 - (combinedIndex - height)
-            scrollbackBuffer[scrollbackIndex]
+            // Show screen lines shifted down
+            val screenIndex = row - viewportOffset
+            if (screenIndex >= height) {
+                // Shouldn't happen, but return empty line
+                Line(width)
+            } else {
+                screenBuffer[screenIndex]
+            }
         }
     }
 
@@ -306,6 +329,8 @@ class TerminalBuffer(var width: Int, var height: Int, val maxScrollbackSize: Int
 
     /**
      * Move cursor to position [cy], [cx].
+     * Ensures cursor doesn't land on continuation cells (second half of wide characters).
+     * If landing on a continuation, moves to the wide character start.
      *
      * Note: Parameters use (row, column) convention matching array indexing.
      *
@@ -314,46 +339,81 @@ class TerminalBuffer(var width: Int, var height: Int, val maxScrollbackSize: Int
      */
     fun moveCursorTo(cy: Int, cx: Int) {
         cursor.moveTo(cy, cx)
+        cursor.clampCursor(0, 0, width - 1, height - 1)
+        adjustCursorForWideChars(preferLeft = true)  // Position at wide char start
+    }
+
+    /**
+     * Adjust cursor position if it lands on a continuation cell (second half of wide character).
+     *
+     * @param preferLeft If true (moving left), jumps to wide char start. If false (moving right/other),
+     *                   jumps to next character after the wide char.
+     */
+    private fun adjustCursorForWideChars(preferLeft: Boolean = false) {
+        val cell = screenBuffer[cursor.cy].getCell(cursor.cx)
+        if (cell?.char == '\u0000') {
+            // On continuation cell - adjust based on movement direction
+            if (preferLeft && cursor.cx > 0) {
+                // Moving left: jump to wide character start (one position back)
+                cursor.moveLeft(1)
+            } else if (cursor.cx + 1 < width) {
+                // Moving right/default: jump to next character (one position forward)
+                cursor.moveRight(1)
+            } else {
+                // At line end: move to wide char start
+                cursor.moveLeft(1)
+            }
+        }
     }
 
     /**
      * Move cursor left by [offset] positions and clamp to valid bounds.
+     * Ensures cursor doesn't land on continuation cells (second half of wide characters).
+     * When landing on a continuation, moves left to the wide character start.
      *
      * @param offset Number of positions to move left (defaults to 1)
      */
     fun moveCursorLeft(offset: Int = 1) {
         cursor.moveLeft(offset)
         cursor.clampCursor(0, 0, width - 1, height - 1)
+        adjustCursorForWideChars(preferLeft = true)
     }
 
     /**
      * Move cursor right by [offset] positions and clamp to valid bounds.
+     * Ensures cursor doesn't land on continuation cells (second half of wide characters).
+     * When landing on a continuation, moves right to the next character.
      *
      * @param offset Number of positions to move right (defaults to 1)
      */
     fun moveCursorRight(offset: Int = 1) {
         cursor.moveRight(offset)
         cursor.clampCursor(0, 0, width - 1, height - 1)
+        adjustCursorForWideChars(preferLeft = false)
     }
 
     /**
      * Move cursor up by [offset] positions and clamp to valid bounds.
+     * Ensures cursor doesn't land on continuation cells (second half of wide characters).
      *
      * @param offset Number of positions to move up (defaults to 1)
      */
     fun moveCursorUp(offset: Int = 1) {
         cursor.moveUp(offset)
         cursor.clampCursor(0, 0, width - 1, height - 1)
+        adjustCursorForWideChars(preferLeft = true)  // Prefer left for vertical movement
     }
 
     /**
      * Move cursor down by [offset] positions and clamp to valid bounds.
+     * Ensures cursor doesn't land on continuation cells (second half of wide characters).
      *
      * @param offset Number of positions to move down (defaults to 1)
      */
     fun moveCursorDown(offset: Int = 1) {
         cursor.moveDown(offset)
         cursor.clampCursor(0, 0, width - 1, height - 1)
+        adjustCursorForWideChars(preferLeft = true)  // Prefer left for vertical movement
     }
 
 
@@ -546,5 +606,6 @@ class TerminalBuffer(var width: Int, var height: Int, val maxScrollbackSize: Int
         requireNotNull(cell) { "No cell at position ($cx, $cy) - cell is uninitialized" }
         return cell.char
     }
+
 
 }

@@ -429,35 +429,39 @@ class TerminalBufferTest {
         tb.writeAt(0, 0, 'X')
         tb.writeAt(0, 1, 'Y')
         tb.writeAt(0, 2, 'Z')
-        // Scrollback: A B C (oldest → newest)
+        // Scrollback: [C, B, A] (C=newest at index 0, A=oldest at index 2)
         tb.addScrollbackLine(markerLine(5, 'A'))
         tb.addScrollbackLine(markerLine(5, 'B'))
         tb.addScrollbackLine(markerLine(5, 'C'))
-        // Scroll up by 2: screen lines shift up, scrollback appears at bottom
-        // combinedIndex: row0=2 → screen[2]=Z, row1=3 → scrollback newest=C, row2=4 → scrollback=B
+        // Scroll up by 2: older scrollback appears at TOP (correct terminal behavior)
+        // row 0: scrollback[2-1-0] = scrollback[1] = B
+        // row 1: scrollback[2-1-1] = scrollback[0] = C
+        // row 2: screen[2-2] = screen[0] = X
         tb.scrollUp(2)
-        assertEquals('Z', tb.getVisibleLine(0).getCell(0)!!.char)
-        assertEquals('A', tb.getVisibleLine(1).getCell(0)!!.char)
-        assertEquals('B', tb.getVisibleLine(2).getCell(0)!!.char)
+        assertEquals('B', tb.getVisibleLine(0).getCell(0)!!.char)
+        assertEquals('C', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('X', tb.getVisibleLine(2).getCell(0)!!.char)
     }
 
     @Test
-    fun getVisibleLineScrolledToTopShowsOldestAtBottom() {
+    fun getVisibleLineScrolledToTopShowsOldestAtTop() {
         val tb = buf(w = 5, h = 3)
         tb.preSizeLines()
         tb.writeAt(0, 0, 'X')
         // Add 5 scrollback lines: A B C D E (oldest → newest)
+        // Scrollback becomes: [E, D, C, B, A] (E=newest at index 0, A=oldest at index 4)
         for (ch in "ABCDE") {
             tb.addScrollbackLine(markerLine(5, ch))
         }
         // scrollToTop → offset = 5, height = 3
-        // row0: combined=5, scrollbackIdx=5-1-(5-3)=2 → C
-        // row1: combined=6, scrollbackIdx=5-1-(6-3)=1 → B
-        // row2: combined=7, scrollbackIdx=5-1-(7-3)=0 → A
+        // Oldest content appears at TOP (correct terminal behavior)
+        // row 0: scrollback[5-1-0] = scrollback[4] = A
+        // row 1: scrollback[5-1-1] = scrollback[3] = B
+        // row 2: scrollback[5-1-2] = scrollback[2] = C
         tb.scrollToTop()
-        assertEquals('C', tb.getVisibleLine(0).getCell(0)!!.char)
-        assertEquals('D', tb.getVisibleLine(1).getCell(0)!!.char)
-        assertEquals('E', tb.getVisibleLine(2).getCell(0)!!.char)
+        assertEquals('A', tb.getVisibleLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('C', tb.getVisibleLine(2).getCell(0)!!.char)
     }
 
     @Test
@@ -469,16 +473,20 @@ class TerminalBufferTest {
         tb.writeAt(0, 1, 'Q')
         tb.writeAt(0, 2, 'R')
         tb.writeAt(0, 3, 'S')
-        // Scrollback: 1 2 (oldest → newest)
+        // Scrollback: [2, 1] (2=newest at index 0, 1=oldest at index 1)
         tb.addScrollbackLine(markerLine(5, '1'))
         tb.addScrollbackLine(markerLine(5, '2'))
         // Scroll up by 1 → offset=1
-        // combinedIndex: row0=1→screen[1]=Q, row1=2→screen[2]=R, row2=3→screen[3]=S, row3=4→scrollback newest=2
+        // Scrollback appears at top (correct terminal behavior):
+        // row 0: scrollback[1-1-0] = scrollback[0] = 2
+        // row 1: screen[1-1] = screen[0] = P
+        // row 2: screen[2-1] = screen[1] = Q
+        // row 3: screen[3-1] = screen[2] = R
         tb.scrollUp(1)
-        assertEquals('Q', tb.getVisibleLine(0).getCell(0)!!.char)
-        assertEquals('R', tb.getVisibleLine(1).getCell(0)!!.char)
-        assertEquals('S', tb.getVisibleLine(2).getCell(0)!!.char)
-        assertEquals('1', tb.getVisibleLine(3).getCell(0)!!.char)
+        assertEquals('2', tb.getVisibleLine(0).getCell(0)!!.char)
+        assertEquals('P', tb.getVisibleLine(1).getCell(0)!!.char)
+        assertEquals('Q', tb.getVisibleLine(2).getCell(0)!!.char)
+        assertEquals('R', tb.getVisibleLine(3).getCell(0)!!.char)
     }
 
     @Test
@@ -513,11 +521,15 @@ class TerminalBufferTest {
         tb.addScrollbackLine(markerLine(5, 'B'))
         tb.addScrollbackLine(markerLine(5, 'C')) // A should be dropped
         assertEquals(2, tb.getScrollbackSize())
-        // Scroll to top — scrollback shown newest first, so C then B
-        // offset=2, height=3: row0=2→screen[2], row1=3→scrollback newest=C, row2=4→scrollback oldest=B
+        // Scrollback: [C, B] (C=newest at index 0, B=oldest at index 1)
+        // Scroll to top — offset=2, height=3
+        // Oldest content at TOP (correct terminal behavior):
+        // row 0: scrollback[2-1-0] = scrollback[1] = B
+        // row 1: scrollback[2-1-1] = scrollback[0] = C
+        // row 2: screen[2-2] = screen[0]
         tb.scrollToTop()
-        assertEquals('B', tb.getVisibleLine(1).getCell(0)!!.char)
-        assertEquals('C', tb.getVisibleLine(2).getCell(0)!!.char)
+        assertEquals('B', tb.getVisibleLine(0).getCell(0)!!.char)
+        assertEquals('C', tb.getVisibleLine(1).getCell(0)!!.char)
     }
 
     @Test
