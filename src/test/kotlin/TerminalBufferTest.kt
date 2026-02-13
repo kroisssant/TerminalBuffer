@@ -712,4 +712,719 @@ class TerminalBufferTest {
         assertEquals('E', tb.getLine(2).getCell(0)!!.char)
         assertEquals('F', tb.getLine(2).getCell(1)!!.char)
     }
+
+    // =======================================================================
+    // insertTextWithWrapping / insertCellsWithWrapping
+    // =======================================================================
+
+    @Test
+    fun insertTextWithWrappingNoOverflow() {
+        val tb = buf(w = 10, h = 3)
+        tb.insertTextWithWrapping("Hello", cx = 0, cy = 0)
+
+        // Should fit within line, no overflow to next line
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('e', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(2)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(3)!!.char)
+        assertEquals('o', tb.getLine(0).getCell(4)!!.char)
+        assertEquals(null, tb.getLine(1).getCell(0)) // next line untouched
+    }
+
+    @Test
+    fun insertTextWithWrappingOverflowsToNextLine() {
+        val tb = buf(w = 5, h = 3)
+        tb.insertTextWithWrapping("HelloWorld", cx = 0, cy = 0)
+
+        // "Hello" on line 0, "World" wraps to line 1
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('e', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(2)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(3)!!.char)
+        assertEquals('o', tb.getLine(0).getCell(4)!!.char)
+
+        assertEquals('W', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('o', tb.getLine(1).getCell(1)!!.char)
+        assertEquals('r', tb.getLine(1).getCell(2)!!.char)
+        assertEquals('l', tb.getLine(1).getCell(3)!!.char)
+        assertEquals('d', tb.getLine(1).getCell(4)!!.char)
+    }
+
+    @Test
+    fun insertTextWithWrappingMultipleLinesOverflow() {
+        val tb = buf(w = 3, h = 5)
+        tb.insertTextWithWrapping("ABCDEFGHIJK", cx = 0, cy = 0)
+
+        // Should wrap across multiple lines
+        // Line 0: ABC
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('C', tb.getLine(0).getCell(2)!!.char)
+
+        // Line 1: DEF
+        assertEquals('D', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('E', tb.getLine(1).getCell(1)!!.char)
+        assertEquals('F', tb.getLine(1).getCell(2)!!.char)
+
+        // Line 2: GHI
+        assertEquals('G', tb.getLine(2).getCell(0)!!.char)
+        assertEquals('H', tb.getLine(2).getCell(1)!!.char)
+        assertEquals('I', tb.getLine(2).getCell(2)!!.char)
+
+        // Line 3: JK
+        assertEquals('J', tb.getLine(3).getCell(0)!!.char)
+        assertEquals('K', tb.getLine(3).getCell(1)!!.char)
+    }
+
+    @Test
+    fun insertTextWithWrappingAtMiddleOfLine() {
+        val tb = buf(w = 10, h = 3)
+        // Pre-fill line 0 with "ABCDE"
+        for (i in 0 until 5) {
+            tb.writeAt(i, 0, "ABCDE"[i])
+        }
+
+        // Insert "XX" at position 2
+        tb.insertTextWithWrapping("XX", cx = 2, cy = 0)
+
+        // Should insert, pushing CDE to the right
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(2)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(3)!!.char)
+        assertEquals('C', tb.getLine(0).getCell(4)!!.char)
+        assertEquals('D', tb.getLine(0).getCell(5)!!.char)
+        assertEquals('E', tb.getLine(0).getCell(6)!!.char)
+    }
+
+    @Test
+    fun insertTextWithWrappingPushesContentToNextLine() {
+        val tb = buf(w = 5, h = 3)
+        // Fill line 0: "Hello"
+        for (i in 0 until 5) {
+            tb.writeAt(i, 0, "Hello"[i])
+        }
+
+        // Insert "XX" at position 2
+        tb.insertTextWithWrapping("XX", cx = 2, cy = 0)
+
+        // Line 0 should be: H e X X l
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('e', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(2)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(3)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(4)!!.char)
+
+        // Line 1 should have overflow: l o
+        assertEquals('l', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('o', tb.getLine(1).getCell(1)!!.char)
+    }
+
+    @Test
+    fun insertTextWithWrappingChainReaction() {
+        val tb = buf(w = 3, h = 4)
+        // Line 0: ABC
+        // Line 1: DEF
+        for (i in 0 until 3) {
+            tb.writeAt(i, 0, "ABC"[i])
+            tb.writeAt(i, 1, "DEF"[i])
+        }
+
+        // Insert "XY" at position 1 of line 0
+        // Should push BC to line 1, which pushes DEF forward
+        tb.insertTextWithWrapping("XY", cx = 1, cy = 0)
+
+        // Line 0: A X Y
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('Y', tb.getLine(0).getCell(2)!!.char)
+
+        // Line 1: B C D (BC pushed from line 0, D from DEF)
+        assertEquals('B', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('C', tb.getLine(1).getCell(1)!!.char)
+        assertEquals('D', tb.getLine(1).getCell(2)!!.char)
+
+        // Line 2: E F (EF pushed from line 1)
+        assertEquals('E', tb.getLine(2).getCell(0)!!.char)
+        assertEquals('F', tb.getLine(2).getCell(1)!!.char)
+    }
+
+    @Test
+    fun insertTextWithWrappingOnLastLineScrolls() {
+        val tb = buf(w = 5, h = 2)
+        tb.preSizeLines()
+        // Write on line 0
+        tb.writeAt(0, 0, 'A')
+
+        // Fill line 1 (last line): "Hello"
+        for (i in 0 until 5) {
+            tb.writeAt(i, 1, "Hello"[i])
+        }
+
+        // Insert long text that will overflow
+        tb.insertTextWithWrapping("XXX", cx = 3, cy = 1)
+
+        // After scrolling, line 0 should have the modified content: H e l X X
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('e', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(2)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(3)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(4)!!.char)
+
+        // Line 1 should have the overflow: l o X
+        // (only the 'l' at position 3 and 'o' at position 4 were shifted, not the 'l' at position 2)
+        assertEquals('l', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('o', tb.getLine(1).getCell(1)!!.char)
+        assertEquals('X', tb.getLine(1).getCell(2)!!.char)
+
+        // Original line 0 should be in scrollback
+        assertEquals(1, tb.getScrollbackSize())
+    }
+
+    @Test
+    fun insertTextWithWrappingPreservesAttributes() {
+        val tb = buf(w = 10, h = 3)
+        val redBold = CellAttributes(fgColor = TerminalColor.Red, style = Style.Bold)
+
+        tb.insertTextWithWrapping("Test", redBold, cx = 0, cy = 0)
+
+        assertEquals('T', tb.getLine(0).getCell(0)!!.char)
+        assertEquals(TerminalColor.Red, tb.getLine(0).getCell(0)!!.attributes.fgColor)
+        assertEquals(Style.Bold, tb.getLine(0).getCell(0)!!.attributes.style)
+    }
+
+    @Test
+    fun insertTextWithWrappingPreservesAttributesAcrossLines() {
+        val tb = buf(w = 3, h = 3)
+        val greenAttr = CellAttributes(fgColor = TerminalColor.Green)
+
+        tb.insertTextWithWrapping("ABCDEF", greenAttr, cx = 0, cy = 0)
+
+        // Line 0: ABC
+        assertEquals(TerminalColor.Green, tb.getLine(0).getCell(0)!!.attributes.fgColor)
+        assertEquals(TerminalColor.Green, tb.getLine(0).getCell(2)!!.attributes.fgColor)
+
+        // Line 1: DEF
+        assertEquals(TerminalColor.Green, tb.getLine(1).getCell(0)!!.attributes.fgColor)
+        assertEquals(TerminalColor.Green, tb.getLine(1).getCell(2)!!.attributes.fgColor)
+    }
+
+    @Test
+    fun insertTextWithWrappingEmptyString() {
+        val tb = buf(w = 5, h = 3)
+        tb.insertTextWithWrapping("", cx = 0, cy = 0)
+
+        // Nothing should be written
+        assertEquals(null, tb.getLine(0).getCell(0))
+    }
+
+    @Test
+    fun insertTextWithWrappingOverwritesSpaces() {
+        val tb = buf(w = 10, h = 3)
+        // Fill with spaces
+        for (i in 0 until 5) {
+            tb.writeAt(i, 0, ' ')
+        }
+
+        tb.insertTextWithWrapping("Hi", cx = 0, cy = 0)
+
+        // Should overwrite spaces
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('i', tb.getLine(0).getCell(1)!!.char)
+        assertEquals(' ', tb.getLine(0).getCell(2)!!.char)
+    }
+
+    @Test
+    fun insertCellsWithWrappingNoOverflow() {
+        val tb = buf(w = 10, h = 3)
+        val cells = listOf(
+            Cell('A', CellAttributes()),
+            Cell('B', CellAttributes()),
+            Cell('C', CellAttributes())
+        )
+
+        tb.insertCellsWithWrapping(cells, cx = 0, cy = 0)
+
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('C', tb.getLine(0).getCell(2)!!.char)
+    }
+
+    @Test
+    fun insertCellsWithWrappingOverflowsToNextLine() {
+        val tb = buf(w = 3, h = 3)
+        val cells = listOf(
+            Cell('A', CellAttributes()),
+            Cell('B', CellAttributes()),
+            Cell('C', CellAttributes()),
+            Cell('D', CellAttributes()),
+            Cell('E', CellAttributes())
+        )
+
+        tb.insertCellsWithWrapping(cells, cx = 0, cy = 0)
+
+        // Line 0: ABC
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('C', tb.getLine(0).getCell(2)!!.char)
+
+        // Line 1: DE
+        assertEquals('D', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('E', tb.getLine(1).getCell(1)!!.char)
+    }
+
+    @Test
+    fun insertCellsWithWrappingPreservesAttributesPerCell() {
+        val tb = buf(w = 5, h = 3)
+        val cells = listOf(
+            Cell('A', CellAttributes(fgColor = TerminalColor.Red)),
+            Cell('B', CellAttributes(fgColor = TerminalColor.Green)),
+            Cell('C', CellAttributes(fgColor = TerminalColor.Blue))
+        )
+
+        tb.insertCellsWithWrapping(cells, cx = 0, cy = 0)
+
+        assertEquals(TerminalColor.Red, tb.getLine(0).getCell(0)!!.attributes.fgColor)
+        assertEquals(TerminalColor.Green, tb.getLine(0).getCell(1)!!.attributes.fgColor)
+        assertEquals(TerminalColor.Blue, tb.getLine(0).getCell(2)!!.attributes.fgColor)
+    }
+
+    @Test
+    fun insertCellsWithWrappingEmptyList() {
+        val tb = buf(w = 5, h = 3)
+        tb.insertCellsWithWrapping(emptyList(), cx = 0, cy = 0)
+
+        // Nothing should happen
+        assertEquals(null, tb.getLine(0).getCell(0))
+    }
+
+    @Test
+    fun insertCellsWithWrappingOnLastLineScrolls() {
+        val tb = buf(w = 3, h = 2)
+        tb.preSizeLines()
+
+        val cells = listOf(
+            Cell('A', CellAttributes()),
+            Cell('B', CellAttributes()),
+            Cell('C', CellAttributes()),
+            Cell('D', CellAttributes())
+        )
+
+        // Insert on last line, should scroll when overflow reaches beyond last line
+        tb.insertCellsWithWrapping(cells, cx = 0, cy = 1)
+
+        // After scrolling, line 0 should have: ABC
+        assertEquals('A', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('B', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('C', tb.getLine(0).getCell(2)!!.char)
+
+        // Line 1 should have the overflow: D
+        assertEquals('D', tb.getLine(1).getCell(0)!!.char)
+
+        // D should have caused a scroll
+        assertEquals(1, tb.getScrollbackSize())
+    }
+
+    // =======================================================================
+    // writeString
+    // =======================================================================
+
+    @Test
+    fun writeStringBasic() {
+        val tb = buf(w = 10, h = 3)
+        tb.writeString("Hello")
+
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('e', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(2)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(3)!!.char)
+        assertEquals('o', tb.getLine(0).getCell(4)!!.char)
+    }
+
+    @Test
+    fun writeStringMovesCursor() {
+        val tb = buf(w = 10, h = 3)
+        tb.writeString("Hello")
+
+        assertEquals(5, tb.getCursor().cx)
+        assertEquals(0, tb.getCursor().cy)
+    }
+
+    @Test
+    fun writeStringWrapsAtEdge() {
+        val tb = buf(w = 5, h = 3)
+        tb.writeString("HelloWorld")
+
+        // "Hello" on line 0
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('o', tb.getLine(0).getCell(4)!!.char)
+
+        // "World" on line 1
+        assertEquals('W', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('d', tb.getLine(1).getCell(4)!!.char)
+
+        assertEquals(5, tb.getCursor().cx)
+        assertEquals(1, tb.getCursor().cy)
+    }
+
+    @Test
+    fun writeStringWithAttributes() {
+        val tb = buf(w = 10, h = 3)
+        val attrs = CellAttributes(fgColor = TerminalColor.Red, style = Style.Bold)
+        tb.writeString("Hi", attrs)
+
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals(TerminalColor.Red, tb.getLine(0).getCell(0)!!.attributes.fgColor)
+        assertEquals(Style.Bold, tb.getLine(0).getCell(0)!!.attributes.style)
+
+        assertEquals('i', tb.getLine(0).getCell(1)!!.char)
+        assertEquals(TerminalColor.Red, tb.getLine(0).getCell(1)!!.attributes.fgColor)
+    }
+
+    @Test
+    fun writeStringEmpty() {
+        val tb = buf(w = 10, h = 3)
+        tb.writeString("")
+
+        assertEquals(0, tb.getCursor().cx)
+        assertEquals(0, tb.getCursor().cy)
+    }
+
+    // =======================================================================
+    // fillLine
+    // =======================================================================
+
+    @Test
+    fun fillLineBasic() {
+        val tb = buf(w = 5, h = 3)
+        tb.fillLine('X', lineCy = 1)
+
+        // Line 1 should be filled with 'X'
+        for (i in 0 until 5) {
+            assertEquals('X', tb.getLine(1).getCell(i)!!.char)
+        }
+    }
+
+    @Test
+    fun fillLineWithAttributes() {
+        val tb = buf(w = 5, h = 3)
+        val attrs = CellAttributes(fgColor = TerminalColor.Green, bgColor = TerminalColor.Blue)
+        tb.fillLine('*', lineCy = 0, cellAttributes = attrs)
+
+        assertEquals('*', tb.getLine(0).getCell(0)!!.char)
+        assertEquals(TerminalColor.Green, tb.getLine(0).getCell(0)!!.attributes.fgColor)
+        assertEquals(TerminalColor.Blue, tb.getLine(0).getCell(0)!!.attributes.bgColor)
+
+        assertEquals('*', tb.getLine(0).getCell(4)!!.char)
+        assertEquals(TerminalColor.Green, tb.getLine(0).getCell(4)!!.attributes.fgColor)
+    }
+
+    @Test
+    fun fillLineDefaultsToCurrentCursorRow() {
+        val tb = buf(w = 5, h = 3)
+        tb.getCursor().moveTo(2, 0)
+        tb.fillLine('-')
+
+        // Should fill line 2 (cursor row)
+        for (i in 0 until 5) {
+            assertEquals('-', tb.getLine(2).getCell(i)!!.char)
+        }
+
+        // Other lines should be unaffected
+        assertEquals(null, tb.getLine(0).getCell(0))
+        assertEquals(null, tb.getLine(1).getCell(0))
+    }
+
+    @Test
+    fun fillLineOverwritesExistingContent() {
+        val tb = buf(w = 5, h = 3)
+        tb.writeAt(0, 1, 'A')
+        tb.writeAt(1, 1, 'B')
+        tb.writeAt(2, 1, 'C')
+
+        tb.fillLine('X', lineCy = 1)
+
+        // All cells should be 'X' now
+        for (i in 0 until 5) {
+            assertEquals('X', tb.getLine(1).getCell(i)!!.char)
+        }
+    }
+
+    // =======================================================================
+    // clearScreen
+    // =======================================================================
+
+    @Test
+    fun clearScreenBasic() {
+        val tb = buf(w = 5, h = 3)
+        // Write content to all lines
+        for (row in 0 until 3) {
+            for (col in 0 until 5) {
+                tb.writeAt(col, row, 'X')
+            }
+        }
+
+        tb.clearScreen()
+
+        // All lines should be empty
+        for (row in 0 until 3) {
+            for (col in 0 until 5) {
+                assertEquals(null, tb.getLine(row).getCell(col))
+            }
+        }
+    }
+
+    @Test
+    fun clearScreenDoesNotAffectScrollback() {
+        val tb = buf(w = 5, h = 3)
+        tb.addScrollbackLine(markerLine(5, 'A'))
+        tb.addScrollbackLine(markerLine(5, 'B'))
+
+        tb.clearScreen()
+
+        // Scrollback should remain
+        assertEquals(2, tb.getScrollbackSize())
+    }
+
+    @Test
+    fun clearScreenDoesNotMoveCursor() {
+        val tb = buf(w = 5, h = 3)
+        tb.getCursor().moveTo(2, 3)
+
+        tb.clearScreen()
+
+        assertEquals(2, tb.getCursor().cy)
+        assertEquals(3, tb.getCursor().cx)
+    }
+
+    // =======================================================================
+    // clearAll
+    // =======================================================================
+
+    @Test
+    fun clearAllClearsScreenAndScrollback() {
+        val tb = buf(w = 5, h = 3)
+        // Write to screen
+        for (row in 0 until 3) {
+            tb.writeAt(0, row, 'X')
+        }
+
+        // Add scrollback
+        tb.addScrollbackLine(markerLine(5, 'A'))
+        tb.addScrollbackLine(markerLine(5, 'B'))
+
+        tb.clearAll()
+
+        // Screen should be empty
+        for (row in 0 until 3) {
+            assertEquals(null, tb.getLine(row).getCell(0))
+        }
+
+        // Scrollback should be empty
+        assertEquals(0, tb.getScrollbackSize())
+    }
+
+    @Test
+    fun clearAllResetsViewportOffset() {
+        val tb = buf(w = 5, h = 3)
+        tb.addScrollbackLine(markerLine(5, 'A'))
+        tb.scrollUp(1)
+
+        assertEquals(1, tb.getViewportOffset())
+
+        tb.clearAll()
+
+        assertEquals(0, tb.getViewportOffset())
+    }
+
+    @Test
+    fun clearAllDoesNotMoveCursor() {
+        val tb = buf(w = 5, h = 3)
+        tb.getCursor().moveTo(1, 2)
+
+        tb.clearAll()
+
+        assertEquals(1, tb.getCursor().cy)
+        assertEquals(2, tb.getCursor().cx)
+    }
+
+    // =======================================================================
+    // insertTextAtCursor (cursor-based insertion with wrapping)
+    // =======================================================================
+
+    @Test
+    fun insertTextAtCursorBasic() {
+        val tb = buf(w = 10, h = 3)
+        tb.getCursor().moveTo(0, 2)
+
+        tb.insertTextWithWrapping("Hello")
+
+        // Text should be at cursor position (row 0, col 2)
+        assertEquals('H', tb.getLine(0).getCell(2)!!.char)
+        assertEquals('e', tb.getLine(0).getCell(3)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(4)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(5)!!.char)
+        assertEquals('o', tb.getLine(0).getCell(6)!!.char)
+    }
+
+    @Test
+    fun insertTextAtCursorMovesCursor() {
+        val tb = buf(w = 10, h = 3)
+        tb.getCursor().moveTo(1, 3)
+
+        tb.insertTextWithWrapping("Hi")
+
+        // Cursor should move to end of inserted text
+        assertEquals(1, tb.getCursor().cy)
+        assertEquals(5, tb.getCursor().cx)
+    }
+
+    @Test
+    fun insertTextAtCursorWrapsToNextLine() {
+        val tb = buf(w = 5, h = 3)
+        tb.getCursor().moveTo(0, 3)
+
+        tb.insertTextWithWrapping("ABCDEFG")
+
+        // "AB" fits on line 0 starting at position 3
+        assertEquals('A', tb.getLine(0).getCell(3)!!.char)
+        assertEquals('B', tb.getLine(0).getCell(4)!!.char)
+
+        // "CDEFG" wraps to line 1
+        assertEquals('C', tb.getLine(1).getCell(0)!!.char)
+        assertEquals('D', tb.getLine(1).getCell(1)!!.char)
+        assertEquals('E', tb.getLine(1).getCell(2)!!.char)
+        assertEquals('F', tb.getLine(1).getCell(3)!!.char)
+        assertEquals('G', tb.getLine(1).getCell(4)!!.char)
+
+        // Cursor should be at end of wrapped text
+        assertEquals(1, tb.getCursor().cy)
+        assertEquals(5, tb.getCursor().cx)
+    }
+
+    @Test
+    fun insertTextAtCursorWithAttributes() {
+        val tb = buf(w = 10, h = 3)
+        tb.getCursor().moveTo(0, 0)
+        val attrs = CellAttributes(fgColor = TerminalColor.Blue)
+
+        tb.insertTextWithWrapping("Test", attrs)
+
+        assertEquals('T', tb.getLine(0).getCell(0)!!.char)
+        assertEquals(TerminalColor.Blue, tb.getLine(0).getCell(0)!!.attributes.fgColor)
+    }
+
+    @Test
+    fun insertTextAtCursorUsesDefaultAttributes() {
+        val tb = buf(w = 10, h = 3)
+        tb.setAttributes(CellAttributes(fgColor = TerminalColor.Magenta))
+        tb.getCursor().moveTo(0, 0)
+
+        tb.insertTextWithWrapping("X")
+
+        assertEquals(TerminalColor.Magenta, tb.getLine(0).getCell(0)!!.attributes.fgColor)
+    }
+
+    @Test
+    fun insertTextAtCursorIntoExistingContent() {
+        val tb = buf(w = 10, h = 3)
+        // Write "Hello"
+        for (i in 0 until 5) {
+            tb.writeAt(i, 0, "Hello"[i])
+        }
+
+        // Insert "XX" at position 2
+        tb.getCursor().moveTo(0, 2)
+        tb.insertTextWithWrapping("XX")
+
+        // Should insert and push content
+        assertEquals('H', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('e', tb.getLine(0).getCell(1)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(2)!!.char)
+        assertEquals('X', tb.getLine(0).getCell(3)!!.char)
+        assertEquals('l', tb.getLine(0).getCell(4)!!.char)
+
+        // Cursor should be after inserted text
+        assertEquals(0, tb.getCursor().cy)
+        assertEquals(4, tb.getCursor().cx)
+    }
+
+    // =======================================================================
+    // insertEmptyLineAtBottom
+    // =======================================================================
+
+    @Test
+    fun insertEmptyLineAtBottomBasic() {
+        val tb = buf(w = 5, h = 3)
+        // Fill all lines with content
+        for (row in 0 until 3) {
+            tb.writeAt(0, row, ('A' + row))
+        }
+
+        tb.insertEmptyLineAtBottom()
+
+        // Top line should be in scrollback
+        assertEquals(1, tb.getScrollbackSize())
+
+        // Screen should be shifted up: B, C, (blank)
+        assertEquals('B', tb.getLine(0).getCell(0)!!.char)
+        assertEquals('C', tb.getLine(1).getCell(0)!!.char)
+        assertEquals(null, tb.getLine(2).getCell(0))
+    }
+
+    @Test
+    fun insertEmptyLineAtBottomDoesNotMoveCursor() {
+        val tb = buf(w = 5, h = 3)
+        tb.getCursor().moveTo(1, 2)
+
+        tb.insertEmptyLineAtBottom()
+
+        // Cursor should stay at same position
+        assertEquals(1, tb.getCursor().cy)
+        assertEquals(2, tb.getCursor().cx)
+    }
+
+    @Test
+    fun insertEmptyLineAtBottomRespectsMaxScrollback() {
+        val tb = TerminalBuffer(5, 2, 2, CellAttributes())
+        // Fill scrollback to max
+        tb.addScrollbackLine(markerLine(5, 'A'))
+        tb.addScrollbackLine(markerLine(5, 'B'))
+
+        tb.insertEmptyLineAtBottom()
+
+        // Scrollback should still be 2 (oldest dropped)
+        assertEquals(2, tb.getScrollbackSize())
+    }
+
+    @Test
+    fun insertEmptyLineAtBottomUpdatesViewportOffset() {
+        val tb = buf(w = 5, h = 3)
+        tb.addScrollbackLine(markerLine(5, 'A'))
+        tb.scrollUp(1)
+
+        assertEquals(1, tb.getViewportOffset())
+
+        tb.insertEmptyLineAtBottom()
+
+        // Viewport offset should increment when scrolled up
+        assertEquals(2, tb.getViewportOffset())
+    }
+
+    @Test
+    fun insertEmptyLineAtBottomMultipleTimes() {
+        val tb = buf(w = 5, h = 2)
+        tb.writeAt(0, 0, 'A')
+        tb.writeAt(0, 1, 'B')
+
+        tb.insertEmptyLineAtBottom()
+        tb.insertEmptyLineAtBottom()
+
+        // Both original lines should be in scrollback
+        assertEquals(2, tb.getScrollbackSize())
+
+        // Screen should be empty
+        assertEquals(null, tb.getLine(0).getCell(0))
+        assertEquals(null, tb.getLine(1).getCell(0))
+    }
 }

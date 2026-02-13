@@ -105,16 +105,6 @@ class Line(initialCapacity: Int) {
         return 0
     }
 
-    /**
-     * Legacy method for compatibility with tests.
-     * Add a cell at the end of existing content.
-     */
-    @Deprecated("Use setCellAt with explicit index instead")
-    fun addCell(char: Char, attributes: CellAttributes = CellAttributes()) {
-        val contentLength = getContentLength()
-        require(contentLength < maxCells) { "Line is full" }
-        setCellAt(contentLength, char, attributes)
-    }
 
     /**
      * Check if line is full (last cell is non-null).
@@ -136,5 +126,107 @@ class Line(initialCapacity: Int) {
                 cells[i] = Cell(' ', CellAttributes())
             }
         }
+    }
+
+    fun fill(char: Char, cellAttributes: CellAttributes) {
+        cells.fill(Cell(char, cellAttributes))
+    }
+
+    /**
+     * Write text at [startIndex] with [attributes], returning cells that overflow beyond maxCells.
+     *
+     * Behavior:
+     * - Scans ahead from startIndex to find the first non-space, non-null cell
+     * - If found, shifts all content from that point right by text.length positions
+     * - Writes the text at startIndex
+     * - Returns cells that overflow beyond maxCells
+     *
+     * @param startIndex Position to start writing at (0-based)
+     * @param text Text to write
+     * @param attributes Attributes for the written cells
+     * @return List of cells that were pushed off the end of the line
+     */
+    fun writeWithWrapping(
+        startIndex: Int,
+        text: String,
+        attributes: CellAttributes = CellAttributes()
+    ): List<Cell> {
+        // Convert text to cells and delegate to writeWithWrappingCells
+        val cellsToWrite = text.map { Cell(it, attributes) }
+        return writeWithWrappingCells(startIndex, cellsToWrite)
+    }
+
+    /**
+     * Write cells at [startIndex], returning cells that overflow beyond maxCells.
+     *
+     * Behavior:
+     * - Scans from startIndex to end of line to find the first non-space, non-null cell
+     * - If found, shifts all content from that point right by cells.size positions
+     * - Writes the cells at startIndex
+     * - Returns cells that overflow beyond maxCells
+     *
+     * @param startIndex Position to start writing at (0-based)
+     * @param cellsToWrite Cells to write
+     * @return List of cells that were pushed off the end of the line
+     */
+    fun writeWithWrappingCells(
+        startIndex: Int,
+        cellsToWrite: List<Cell>
+    ): List<Cell> {
+        require(startIndex in 0 until maxCells) {
+            "startIndex $startIndex out of bounds [0, $maxCells)"
+        }
+
+        if (cellsToWrite.isEmpty()) {
+            return emptyList()
+        }
+
+        val overflow = mutableListOf<Cell>()
+
+        // Find the first non-space, non-null cell from startIndex to end of line
+        var firstContentPos = -1
+        for (i in startIndex until maxCells) {
+            val cell = cells[i]
+            if (cell != null && cell.char != ' ') {
+                firstContentPos = i
+                break
+            }
+        }
+
+        // If we found content, we need to insert (shift right)
+        if (firstContentPos != -1) {
+            // Collect all cells from firstContentPos to end
+            val cellsToShift = mutableListOf<Cell>()
+            for (i in firstContentPos until maxCells) {
+                cells[i]?.let { cellsToShift.add(it) }
+            }
+
+            // Calculate how much we're shifting (number of cells that fit)
+            val cellsThatFit = minOf(cellsToWrite.size, maxCells - startIndex)
+            val shiftAmount = cellsThatFit
+
+            // Place shifted cells at their new positions
+            for ((index, cell) in cellsToShift.withIndex()) {
+                val newPos = firstContentPos + shiftAmount + index
+                if (newPos >= maxCells) {
+                    overflow.add(cell)
+                } else {
+                    cells[newPos] = cell
+                }
+            }
+        }
+
+        // Now write the cells at startIndex
+        for ((i, cell) in cellsToWrite.withIndex()) {
+            val writePos = startIndex + i
+            if (writePos >= maxCells) {
+                // Cell doesn't fit, add to overflow
+                overflow.add(cell)
+            } else {
+                cells[writePos] = Cell(cell.char, cell.attributes)
+            }
+        }
+
+        return overflow
     }
 }
