@@ -1641,6 +1641,279 @@ class TerminalBufferTest {
     }
 
     @Test
+    fun deleteCharacterAtLastCellPosition() {
+        val tb = buf(w = 5, h = 3)
+        // Write characters to fill the line: "ABCDE"
+        tb.writeString("ABCDE")
+
+        // Move cursor to the last cell (index 4)
+        tb.moveCursorTo(0, 4)
+        assertEquals(4, tb.getCursor().cx)
+        assertEquals('E', tb.getCharAtPosition(4, 0))
+
+        // Delete the character at the last position
+        tb.deleteCharacterAtCursor()
+
+        // Should have deleted 'E', leaving "ABCD"
+        assertEquals("ABCD", tb.getLineAsString(0).trimEnd())
+        // Cursor should remain at position 4 (now pointing to null/empty)
+        assertEquals(4, tb.getCursor().cx)
+    }
+
+    @Test
+    fun cursorCannotLandOnLastCellIfWideCharacterBeforeIt() {
+        val tb = buf(w = 5, h = 3)
+        // Write: "AB" + wide char at position 2-3, leaving position 4 as continuation
+        tb.writeString("AB")
+        tb.write('中')  // Wide character takes positions 2 and 3
+
+        // Try to move cursor to position 4 (which should be empty after the wide char)
+        tb.moveCursorTo(0, 4)
+
+        // Cursor should be clamped to position 4 (after the wide char)
+        // because position 4 is a valid position (not a continuation marker)
+        assertEquals(4, tb.getCursor().cx)
+
+        // Now test with wide char at positions 3-4 (continuation at last cell)
+        val tb2 = buf(w = 5, h = 3)
+        tb2.writeString("ABC")  // Positions 0, 1, 2
+        tb2.write('中')  // Wide character at positions 3-4 (continuation at last cell)
+
+        // Try to move cursor to position 4 (the continuation marker)
+        tb2.moveCursorTo(0, 4)
+
+        // Cursor should adjust to position 3 (start of wide char) since position 4 is a continuation
+        assertEquals(3, tb2.getCursor().cx)
+    }
+
+    @Test
+    fun cursorCanReachLastCellByMovingRight() {
+        val tb = buf(w = 5, h = 3)
+        tb.writeString("ABCDE")  // Fill line with normal characters
+
+        // Reset cursor to start
+        tb.moveCursorTo(0, 0)
+        assertEquals(0, tb.getCursor().cx)
+
+        tb.moveCursorRight()  // Should be at position 1
+        assertEquals(1, tb.getCursor().cx)
+
+        tb.moveCursorRight()  // Should be at position 2
+        assertEquals(2, tb.getCursor().cx)
+
+        tb.moveCursorRight()  // Should be at position 3
+        assertEquals(3, tb.getCursor().cx)
+
+        tb.moveCursorRight()  // Should be at position 4 (last cell)
+        assertEquals(4, tb.getCursor().cx)
+
+        // Verify we can delete at this position
+        assertEquals('E', tb.getCharAtPosition(4, 0))
+        tb.deleteCharacterAtCursor()
+        assertEquals("ABCD", tb.getLineAsString(0).trimEnd())
+    }
+
+    @Test
+    fun cursorCannotMoveRightPastWideCharacterAtEnd() {
+        val tb = buf(w = 5, h = 3)
+        tb.writeString("ABC")  // Positions 0, 1, 2
+        tb.write('中')  // Wide character at positions 3-4
+
+        // Move cursor to position 2
+        tb.moveCursorTo(0, 2)
+        assertEquals(2, tb.getCursor().cx)
+
+        // Move right - should go to position 3 (wide char start)
+        tb.moveCursorRight()
+        assertEquals(3, tb.getCursor().cx)
+
+        // Try to move right again - should stay at 3 because position 4 is a continuation
+        tb.moveCursorRight()
+        // The cursor tries to move to position 4, but adjustCursorForWideChars should move it back to 3
+        assertEquals(3, tb.getCursor().cx, "Cursor should stay at wide char start, not move to continuation marker")
+    }
+
+    @Test
+    fun cursorMovesRightThroughMultipleWideCharacters() {
+        val tb = buf(w = 10, h = 3)
+        // Write: "A" + two wide chars + "B" = A中日B
+        // Positions: 0='A', 1-2='中', 3-4='日', 5='B'
+        tb.writeString("A")
+        tb.write('中')  // positions 1-2
+        tb.write('日')  // positions 3-4
+        tb.write('B')   // position 5
+
+        // Reset to start
+        tb.moveCursorTo(0, 0)
+        assertEquals(0, tb.getCursor().cx)
+
+        // Move through all characters
+        tb.moveCursorRight()  // 0 -> 1 (wide char start)
+        assertEquals(1, tb.getCursor().cx)
+
+        tb.moveCursorRight()  // 1 -> 2, but 2 is continuation, should jump to 3
+        assertEquals(3, tb.getCursor().cx)
+
+        tb.moveCursorRight()  // 3 -> 4, but 4 is continuation, should jump to 5
+        assertEquals(5, tb.getCursor().cx)
+
+        tb.moveCursorRight()  // 5 -> 6
+        assertEquals(6, tb.getCursor().cx)
+    }
+
+    @Test
+    fun cursorMovesLeftThroughMultipleWideCharacters() {
+        val tb = buf(w = 10, h = 3)
+        // Write: "A中日B"
+        // Positions: 0='A', 1-2='中', 3-4='日', 5='B'
+        tb.writeString("A")
+        tb.write('中')  // positions 1-2
+        tb.write('日')  // positions 3-4
+        tb.write('B')   // position 5
+
+        // Start at position 6 (after 'B')
+        tb.moveCursorTo(0, 6)
+        assertEquals(6, tb.getCursor().cx)
+
+        // Move left through all characters
+        tb.moveCursorLeft()  // 6 -> 5 ('B')
+        assertEquals(5, tb.getCursor().cx)
+
+        tb.moveCursorLeft()  // 5 -> 4, but 4 is continuation, should jump to 3 (wide char start)
+        assertEquals(3, tb.getCursor().cx)
+
+        tb.moveCursorLeft()  // 3 -> 2, but 2 is continuation, should jump to 1 (wide char start)
+        assertEquals(1, tb.getCursor().cx)
+
+        tb.moveCursorLeft()  // 1 -> 0 ('A')
+        assertEquals(0, tb.getCursor().cx)
+    }
+
+    @Test
+    fun cursorMovesUpThroughLinesWithWideCharacters() {
+        val tb = buf(w = 10, h = 4)
+
+        // Line 0: "AB中"
+        tb.moveCursorTo(0, 0)
+        tb.writeString("AB")
+        tb.write('中')  // positions 2-3
+
+        // Line 1: "中DE"
+        tb.moveCursorTo(1, 0)
+        tb.write('中')  // positions 0-1
+        tb.writeString("DE")  // positions 2-3
+
+        // Line 2: "F中G"
+        tb.moveCursorTo(2, 0)
+        tb.write('F')
+        tb.write('中')  // positions 1-2
+        tb.write('G')  // position 3
+
+        // Start at line 2, position 3
+        tb.moveCursorTo(2, 3)
+        assertEquals(2, tb.getCursor().cy)
+        assertEquals(3, tb.getCursor().cx)
+
+        // Move up to line 1, position 3 (should be valid)
+        tb.moveCursorUp()
+        assertEquals(1, tb.getCursor().cy)
+        assertEquals(3, tb.getCursor().cx)
+
+        // Move up to line 0, position 3 (continuation marker, should adjust to 2)
+        tb.moveCursorUp()
+        assertEquals(0, tb.getCursor().cy)
+        assertEquals(2, tb.getCursor().cx)  // Adjusted to wide char start
+    }
+
+    @Test
+    fun cursorMovesDownThroughLinesWithWideCharacters() {
+        val tb = buf(w = 10, h = 4)
+
+        // Line 0: "AB中"
+        tb.moveCursorTo(0, 0)
+        tb.writeString("AB")
+        tb.write('中')  // positions 2-3
+
+        // Line 1: "中DE"
+        tb.moveCursorTo(1, 0)
+        tb.write('中')  // positions 0-1
+        tb.writeString("DE")  // positions 2-3
+
+        // Line 2: "F中G"
+        tb.moveCursorTo(2, 0)
+        tb.write('F')
+        tb.write('中')  // positions 1-2
+        tb.write('G')  // position 3
+
+        // Start at line 0, position 2 (wide char start)
+        tb.moveCursorTo(0, 2)
+        assertEquals(0, tb.getCursor().cy)
+        assertEquals(2, tb.getCursor().cx)
+
+        // Move down to line 1, position 2
+        tb.moveCursorDown()
+        assertEquals(1, tb.getCursor().cy)
+        assertEquals(2, tb.getCursor().cx)
+
+        // Move down to line 2, position 2 (continuation marker, should adjust to 1)
+        tb.moveCursorDown()
+        assertEquals(2, tb.getCursor().cy)
+        assertEquals(1, tb.getCursor().cx)  // Adjusted to wide char start
+    }
+
+    @Test
+    fun cursorMovementWithOffsetThroughWideCharacters() {
+        val tb = buf(w = 10, h = 3)
+        // Write: "A中B中C"
+        // Positions: 0='A', 1-2='中', 3='B', 4-5='中', 6='C'
+        tb.writeString("A")
+        tb.write('中')  // 1-2
+        tb.write('B')   // 3
+        tb.write('中')  // 4-5
+        tb.write('C')   // 6
+
+        // Test moving right by 2
+        tb.moveCursorTo(0, 0)
+        tb.moveCursorRight(2)
+        // 0 + 2 = 2 (continuation marker), adjusts to 3
+        assertEquals(3, tb.getCursor().cx)
+
+        // Test moving left by 2 from position 6
+        tb.moveCursorTo(0, 6)
+        tb.moveCursorLeft(2)
+        // 6 - 2 = 4 (wide char start), stays at 4
+        assertEquals(4, tb.getCursor().cx)
+    }
+
+    @Test
+    fun cursorClampsAndAdjustsAtBoundariesWithWideCharacters() {
+        val tb = buf(w = 5, h = 3)
+        // Line 0: "中日" (positions 0-1, 2-3, position 4 empty)
+        tb.write('中')  // 0-1
+        tb.write('日')  // 2-3
+
+        // Try to move right past the end
+        tb.moveCursorTo(0, 3)  // At second wide char
+        tb.moveCursorRight(10)  // Try to move way past
+        assertEquals(4, tb.getCursor().cx)  // Should clamp to width-1
+
+        // Try to move left past the start
+        tb.moveCursorTo(0, 1)
+        tb.moveCursorLeft(10)
+        assertEquals(0, tb.getCursor().cx)  // Should clamp to 0
+
+        // Try to move up past top
+        tb.moveCursorTo(0, 2)
+        tb.moveCursorUp(10)
+        assertEquals(0, tb.getCursor().cy)  // Should stay at row 0
+
+        // Try to move down past bottom
+        tb.moveCursorTo(0, 2)
+        tb.moveCursorDown(10)
+        assertEquals(2, tb.getCursor().cy)  // Should clamp to height-1
+    }
+
+    @Test
     fun testWriteAtWithWideCharacter() {
         val buffer = TerminalBuffer(10, 3, 100, CellAttributes())
         buffer.writeAt(2, 0, '中', CellAttributes())
@@ -3152,7 +3425,7 @@ class TerminalBufferTest {
         buffer.resize(4, 3)
 
         // Each wide char takes 2 columns
-        // "中文" (width 4) fits on first line
+// "中文" (width 4) fits on first line
         // "日" (width 2) wraps to second line
         assertEquals("中文", buffer.getLine(0).toString())
         assertEquals("日", buffer.getLine(1).toString())
