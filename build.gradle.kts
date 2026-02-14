@@ -1,9 +1,10 @@
 plugins {
     kotlin("jvm") version "2.2.21"
+    `java-library`
 }
 
 group = "com.david"
-version = "1.0-SNAPSHOT"
+version = "1.0"
 
 repositories {
     mavenCentral()
